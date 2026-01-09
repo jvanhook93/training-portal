@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ cv.course.title }} - {{ cv.version }}</title>
+
+    <style>
+      body {
+        font-family: system-ui, Arial, sans-serif;
+        margin: 0;
+        background: #0b0f19;
+        color: #eef2ff;
+      }
+
+      .wrap {
+        padding: 24px;
+        display: flex;
+        justify-content: center;
+      }
+
+      .card {
+        width: 100%;
+        max-width: 1200px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 34px;
+      }
+
+      .meta {
+        color: #cbd5e1;
+        margin-bottom: 14px;
+        font-size: 16px;
+      }
+
+      .player {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: black;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(0,0,0,.45);
+      }
+
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: black;
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        margin-top: 14px;
+      }
+
+      .pill {
+        padding: 8px 14px;
+        border: 1px solid rgba(148,163,184,.4);
+        border-radius: 999px;
+        background: rgba(15,23,42,.7);
+        color: #e2e8f0;
+        font-size: 14px;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>{{ cv.course.title }} <small>({{ cv.version }})</small></h1>
+        <div class="meta">
+          Progress: <strong><span id="pct">{{ vp.percent }}</span>%</strong>
+        </div>
+
+        {% if cv.video_file %}
+          <div class="player">
+            <video id="vid" controls preload="metadata" playsinline>
+              <source src="{{ cv.video_file.url }}" type="video/mp4">
+            </video>
+          </div>
+        {% else %}
+          <p><b>No video uploaded yet.</b></p>
+        {% endif %}
+
+        <div class="row">
+          {% if cv.pdf_file %}
+            <a class="pill" href="{{ cv.pdf_file.url }}" target="_blank">Open PDF</a>
+          {% else %}
+            <span class="pill">No PDF</span>
+          {% endif %}
+          <span class="pill">Pass score: {{ cv.pass_score }}%</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const vid = document.getElementById("vid");
+      const pctEl = document.getElementById("pct");
+
+      function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+      }
+
+      function postPing() {
+        if (!vid || !vid.duration) return;
+
+        const percent = Math.floor((vid.currentTime / vid.duration) * 100);
+
+        const data = new URLSearchParams();
+        data.append("watched_seconds", Math.floor(vid.currentTime));
+        data.append("total_seconds", Math.floor(vid.duration));
+        data.append("percent", percent);
+
+        fetch("video-ping/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRFToken": getCookie("csrftoken")
+          },
+          body: data.toString()
+        }).then(r => r.json())
+          .then(j => { if (j.ok) pctEl.textContent = j.percent; });
+      }
+
+      if (vid) {
+        setInterval(() => {
+          if (!vid.paused && !vid.ended) postPing();
+        }, 8000);
+
+        vid.addEventListener("pause", postPing);
+        vid.addEventListener("ended", postPing);
+      }
+    </script>
+  </body>
+</html>
