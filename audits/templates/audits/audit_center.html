@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Audit Center</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 20px; background:#0b0f19; color:#eef2ff; }
+    a { color:#93c5fd; text-decoration:none; }
+    input, select { padding:8px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; }
+    button { padding:8px 12px; border-radius:10px; border:1px solid #334155; background:#111827; color:#e2e8f0; cursor:pointer; }
+    table { width:100%; border-collapse: collapse; margin-top:14px; }
+    th, td { border-bottom: 1px solid #1f2937; padding: 10px; text-align:left; font-size: 14px; }
+    th { color:#cbd5e1; font-weight:600; }
+    .pill { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid #334155; font-size:12px; }
+    .ok { color:#86efac; border-color:#14532d; }
+    .bad { color:#fca5a5; border-color:#7f1d1d; }
+    .soon { color:#fde68a; border-color:#92400e; }
+    .muted { color:#94a3b8; }
+    .row { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
+  </style>
+</head>
+<body>
+  <h2>Audit Center</h2>
+  <div class="muted">
+    {% if can_audit_all %}
+      You can search all users.
+    {% else %}
+      You can only search your direct reports (and yourself).
+    {% endif %}
+  </div>
+
+  <form method="get" style="margin-top:14px;">
+    <div class="row">
+      <div>
+        <div class="muted">Search</div>
+        <input name="q" value="{{ q }}" placeholder="email, name, course, cert id">
+      </div>
+
+      <div>
+        <div class="muted">Course Code</div>
+        <input name="course" value="{{ course }}" placeholder="HIPAA, FWA">
+      </div>
+
+      <div>
+        <div class="muted">Status</div>
+        <select name="status">
+          <option value="" {% if status == "" %}selected{% endif %}>All</option>
+          <option value="COMPLIANT" {% if status == "COMPLIANT" %}selected{% endif %}>Compliant</option>
+          <option value="DUE SOON" {% if status == "DUE SOON" %}selected{% endif %}>Due Soon</option>
+          <option value="EXPIRED" {% if status == "EXPIRED" %}selected{% endif %}>Expired</option>
+        </select>
+      </div>
+
+      <div>
+        <div class="muted">Completed Start</div>
+        <input type="date" name="start" value="{{ start }}">
+      </div>
+
+      <div>
+        <div class="muted">Completed End</div>
+        <input type="date" name="end" value="{{ end }}">
+      </div>
+
+      <button type="submit">Search</button>
+      <button type="submit" name="export" value="csv">Export CSV</button>
+
+      <a href="{% url 'dashboard' %}" style="margin-left:10px;">Back to Dashboard</a>
+    </div>
+  </form>
+
+  <table>
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Course</th>
+        <th>Version</th>
+        <th>Completed</th>
+        <th>Expires</th>
+        <th>Status</th>
+        <th>Certificate</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.user_display }}</td>
+          <td>{{ r.course_display }}</td>
+          <td>{{ r.version_display }}</td>
+          <td>{{ r.cycle.completed_at|date:"Y-m-d" }}</td>
+          <td>{{ r.cycle.expires_at|date:"Y-m-d" }}</td>
+          <td>
+            {% if r.status_label == "COMPLIANT" %}
+              <span class="pill ok">COMPLIANT</span>
+            {% elif r.status_label == "DUE SOON" %}
+              <span class="pill soon">DUE SOON</span>
+            {% else %}
+              <span class="pill bad">EXPIRED</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{% url 'download_certificate' r.cycle.certificate_id %}">Download PDF</a>
+            <div class="muted" style="font-size:12px;">{{ r.cycle.certificate_id }}</div>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="muted">No results.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+</body>
+</html>

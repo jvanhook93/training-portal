@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
-
+from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
+import uuid
 
 class Course(models.Model):
     """
@@ -99,3 +101,77 @@ class Assignment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.assignee} -> {self.course_version}"
+
+
+class AssignmentCycle(models.Model):
+    """
+    One completed compliance cycle for an assignment.
+    This preserves history for audits and drives expiration logic.
+    """
+    assignment = models.ForeignKey(
+        Assignment,
+        on_delete=models.CASCADE,
+        related_name="cycles"
+    )
+
+    completed_at = models.DateTimeField(default=now)
+    expires_at = models.DateTimeField()
+
+    score = models.PositiveSmallIntegerField(null=True, blank=True)
+    passed = models.BooleanField(default=True)
+
+    certificate_id = models.CharField(max_length=32, unique=True, editable=False)
+
+    class Meta:
+        ordering = ["-completed_at"]
+        permissions = [
+        ("can_audit_certs", "Can search and download certificates for all users"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            # Auto-generate cert id
+            self.certificate_id = uuid.uuid4().hex[:10]
+
+            # Default 11-month expiration unless overridden later
+            self.expires_at = self.completed_at + relativedelta(months=11)
+
+        super().save(*args, **kwargs)
+
+    @property
+    def days_remaining(self):
+        return (self.expires_at.date() - now().date()).days
+
+    def __str__(self):
+        return f"{self.assignment} completed {self.completed_at.date()}"
+
+
+class Quiz(models.Model):
+    course_version = models.OneToOneField(
+        "CourseVersion",
+        on_delete=models.CASCADE,
+        related_name="course_quiz",
+    )
+    is_required = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Quiz for {self.course_version}"
+
+
+class QuizQuestion(models.Model):
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
+    prompt = models.TextField()
+
+    order = models.PositiveSmallIntegerField(default=1)
+
+    def __str__(self):
+        return f"Q{self.order}: {self.prompt[:40]}"
+
+
+class QuizChoice(models.Model):
+    question = models.ForeignKey(QuizQuestion, on_delete=models.CASCADE, related_name="choices")
+    text = models.CharField(max_length=255)
+    is_correct = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.text

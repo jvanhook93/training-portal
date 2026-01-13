@@ -1,0 +1,106 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ cv.course.title }} ({{ cv.version }}) - Quiz</title>
+
+    <style>
+      body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #0b0f19; color: #eef2ff; }
+      .wrap { padding: 24px; display:flex; justify-content:center; }
+      .card { width:100%; max-width: 900px; }
+      h1 { margin: 0 0 6px; font-size: 30px; }
+      .muted { color:#94a3b8; }
+      .msg {
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255,255,255,.08);
+        border: 1px solid rgba(148,163,184,.25);
+        margin: 0 0 10px;
+      }
+      .msg.success { border-color: rgba(34,197,94,.4); }
+      .msg.error { border-color: rgba(239,68,68,.4); }
+
+      .q {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: 14px;
+        background: rgba(15,23,42,.7);
+        border: 1px solid rgba(148,163,184,.25);
+      }
+      .q h3 { margin: 0 0 10px; font-size: 16px; }
+      label {
+        display:block;
+        padding: 10px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(148,163,184,.18);
+        background: rgba(2,6,23,.35);
+        margin-bottom: 8px;
+        cursor:pointer;
+      }
+      input[type="radio"] { margin-right: 10px; }
+
+      .row { display:flex; flex-wrap:wrap; gap: 12px; align-items:center; margin-top: 16px; }
+      .pill {
+        padding: 8px 14px;
+        border: 1px solid rgba(148,163,184,.4);
+        border-radius: 999px;
+        background: rgba(15,23,42,.7);
+        color: #e2e8f0;
+        font-size: 14px;
+        text-decoration: none;
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+      }
+      button.pill { cursor:pointer; }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <a class="pill" href="{% url 'logout' %}">Logout</a>
+
+        {% if messages %}
+          <div style="margin-bottom: 14px;">
+            {% for message in messages %}
+              <div class="msg {% if message.tags %}{{ message.tags }}{% endif %}">
+                {{ message }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <h1>{{ cv.course.title }} <small class="muted">({{ cv.version }})</small></h1>
+        <div class="muted">
+          Quiz • Passing score: <b>{{ cv.pass_score }}%</b>
+        </div>
+
+        <form method="post" action="{% url 'submit_quiz' cv.id %}" style="margin-top: 10px;">
+          {% csrf_token %}
+
+          {% for q in questions %}
+            <div class="q">
+              <h3>{{ forloop.counter }}. {{ q.prompt }}</h3>
+
+              {% for ch in q.choices.all %}
+                <label>
+                  <input type="radio" name="q{{ q.id }}" value="{{ ch.id }}">
+                  {{ ch.text }}
+                </label>
+              {% endfor %}
+            </div>
+          {% empty %}
+            <p class="muted" style="margin-top:14px;">No questions configured yet.</p>
+          {% endfor %}
+
+          <div class="row">
+            <button class="pill" type="submit">Submit Quiz</button>
+            <a class="pill" href="{% url 'my_training' cv.id %}">Back to Training</a>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  </body>
+</html>

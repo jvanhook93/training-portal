@@ -27,6 +27,12 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+LOGIN_URL = "/accounts/login/"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/accounts/login/"
+
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = "training@integranethealth.com"
 
 # Application definition
 
@@ -40,7 +46,6 @@ INSTALLED_APPS = [
     'rest_framework',
     'accounts',
     'courses',
-    'quizzes',
     'audits',
 ]
 
@@ -56,10 +61,14 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / "templates"],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [

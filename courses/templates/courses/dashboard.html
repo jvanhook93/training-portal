@@ -1,0 +1,49 @@
+<h2>My Trainings</h2>
+
+<form method="post" action="{% url 'logout' %}" style="display:inline;">
+  {% csrf_token %}
+  <button type="submit" class="pill">Logout</button>
+</form>
+
+
+<table border="1" cellpadding="8">
+  <tr>
+    <th>Course</th>
+    <th>Version</th>
+    <th>Status</th>
+    <th>Expires</th>
+    <th>Action</th>
+  </tr>
+
+  {% for row in rows %}
+  <tr>
+    <td>{{ row.assignment.course_version.course.title }}</td>
+    <td>{{ row.assignment.course_version.version }}</td>
+    <td>
+      {% if row.status_label == "COMPLIANT" %}✅{% endif %}
+      {% if row.status_label == "DUE SOON" %}⚠️{% endif %}
+      {% if row.status_label == "EXPIRED" %}❌{% endif %}
+      {{ row.status_label }}
+    </td>
+    <td>
+      {% if row.days_remaining != None %}
+        {{ row.days_remaining }} days
+      {% else %}
+        —
+      {% endif %}
+    </td>
+    <td>
+    {% if row.cycle %}
+        <a href="{% url 'download_certificate' row.cycle.certificate_id %}">Download Certificate</a>
+    {% else %}
+        —
+    {% endif %}
+    </td>
+    <td>
+        <a href="{% url 'my_training' row.assignment.course_version.id %}">
+        {% if row.assignment.status == "COMPLETED" %}View{% else %}Start{% endif %}
+        </a>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
