@@ -149,7 +149,16 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 
 CSRF_TRUSTED_ORIGINS = [
+    "https://web-production-4c59f.up.railway.app",
     "https://training-portal-8pr.pages.dev",
 ]
+
+
+CSRF_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SECURE = True
+
+SESSION_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SECURE = True
+
 
 CORS_ALLOW_CREDENTIALS = True
