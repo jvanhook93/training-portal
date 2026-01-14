@@ -29,8 +29,10 @@ SECRET_KEY = 'django-insecure-59wd6!n0r=fqwkrgi4s20_%ds7vzcg@3ra+kapydg_l%yy!@m!
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
-ALLOWED_HOSTS = [h.strip() for h in ALLOWED_HOSTS if h.strip()]
+ALLOWED_HOSTS = [h.strip() for h in os.getenv(
+    "ALLOWED_HOSTS",
+    "localhost,127.0.0.1,.up.railway.app"
+).split(",") if h.strip()]
 
 LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/app"
