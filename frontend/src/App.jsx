@@ -18,6 +18,27 @@ function getCookie(name) {
   return null;
 }
 
+// --- API base (Cloudflare Pages needs absolute backend URL) ---
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = RAW_API_BASE.replace(/\/+$/, ""); // trim trailing slash
+
+function apiUrl(path) {
+  // path like "/api/me/"
+  if (!API_BASE) return path; // fallback for local dev/proxy
+  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+function extUrl(path) {
+  // for login/logout/training routes that live on Django
+  if (!API_BASE) return path;
+  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+async function apiFetch(path, init = {}) {
+  // Always include cookies for session auth
+  const r = await fetch(apiUrl(path), { credentials: "include", ...init });
+  return r;
+}
 
 function Card({ title, children, onClick, clickable }) {
   return (
@@ -76,8 +97,8 @@ function statusLabel(s) {
 
 export default function App() {
   const [me, setMe] = useState(null);
-  const [status, setStatus] = useState("loading"); // loading | authed | unauth | error
-  const [page, setPage] = useState("dashboard");   // dashboard | courses
+  const [status, setStatus] = useState("loading"); // loading | authed | unauth | error | nobackend
+  const [page, setPage] = useState("dashboard"); // dashboard | courses
 
   const [courses, setCourses] = useState([]);
   const [coursesStatus, setCoursesStatus] = useState("idle"); // idle | loading | ready | error
@@ -86,18 +107,28 @@ export default function App() {
   const [assignStatus, setAssignStatus] = useState("idle"); // idle | loading | ready | error
   const [assignError, setAssignError] = useState("");
 
-  // Dashboard sub-view filter
   const [assignView, setAssignView] = useState("all"); // all | assigned | inprogress | completed
-
   const [busyId, setBusyId] = useState(null);
 
   // ---- boot auth ----
   useEffect(() => {
     (async () => {
+      // On Cloudflare Pages, if you didn't set VITE_API_BASE_URL, we cannot auth.
+      if (!API_BASE) {
+        setStatus("nobackend");
+        return;
+      }
+
       try {
-        const r = await fetch("/api/me/", { credentials: "include" });
-        if (r.status === 401) { setStatus("unauth"); return; }
-        if (!r.ok) { setStatus("error"); return; }
+        const r = await apiFetch("/api/me/");
+        if (r.status === 401) {
+          setStatus("unauth");
+          return;
+        }
+        if (!r.ok) {
+          setStatus("error");
+          return;
+        }
         const data = await r.json();
         setMe(data);
         setStatus("authed");
@@ -110,7 +141,7 @@ export default function App() {
   async function loadCourses() {
     try {
       setCoursesStatus("loading");
-      const r = await fetch("/api/courses/", { credentials: "include" });
+      const r = await apiFetch("/api/courses/");
       if (!r.ok) throw new Error("bad response");
       const data = await r.json();
       setCourses(data.results || []);
@@ -124,7 +155,7 @@ export default function App() {
     try {
       setAssignError("");
       setAssignStatus("loading");
-      const r = await fetch("/api/me/assignments/", { credentials: "include" });
+      const r = await apiFetch("/api/me/assignments/");
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
         throw new Error(`assignments load failed: ${r.status} ${txt}`);
@@ -145,80 +176,102 @@ export default function App() {
 
   const counts = useMemo(() => {
     const total = assignments.length;
-    const completed = assignments.filter(a => a.status === "COMPLETED").length;
-    const inProgress = assignments.filter(a => a.status === "IN_PROGRESS").length;
-    const assigned = assignments.filter(a => a.status === "ASSIGNED").length;
-    const overdue = assignments.filter(a => a.status === "OVERDUE").length;
+    const completed = assignments.filter((a) => a.status === "COMPLETED").length;
+    const inProgress = assignments.filter((a) => a.status === "IN_PROGRESS").length;
+    const assigned = assignments.filter((a) => a.status === "ASSIGNED").length;
+    const overdue = assignments.filter((a) => a.status === "OVERDUE").length;
     return { total, assigned, inProgress, completed, overdue };
   }, [assignments]);
 
   const filteredAssignments = useMemo(() => {
-    if (assignView === "assigned") return assignments.filter(a => a.status === "ASSIGNED");
-    if (assignView === "inprogress") return assignments.filter(a => a.status === "IN_PROGRESS");
-    if (assignView === "completed") return assignments.filter(a => a.status === "COMPLETED");
+    if (assignView === "assigned") return assignments.filter((a) => a.status === "ASSIGNED");
+    if (assignView === "inprogress") return assignments.filter((a) => a.status === "IN_PROGRESS");
+    if (assignView === "completed") return assignments.filter((a) => a.status === "COMPLETED");
     return assignments;
   }, [assignments, assignView]);
 
   // ---- actions ----
   async function startAssignment(a) {
-  try {
-    setBusyId(a.id);
+    try {
+      setBusyId(a.id);
 
-    // 1) hit CSRF endpoint to ensure cookie exists
-    await fetch("/api/csrf/", { credentials: "include" });
+      if (!API_BASE) throw new Error("Backend URL is not configured.");
 
-    // 2) read the cookie and send it
-    const csrf = getCookie("csrftoken");
+      // 1) hit CSRF endpoint to ensure cookie exists
+      await apiFetch("/api/csrf/");
 
-    const r = await fetch(`/api/assignments/${a.id}/start/`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "X-CSRFToken": csrf || "",
-        "X-Requested-With": "XMLHttpRequest",
-      },
-    });
+      // 2) read the cookie and send it
+      const csrf = getCookie("csrftoken");
 
-    if (!r.ok) {
-      const txt = await r.text().catch(() => "");
-      throw new Error(`Start failed: ${r.status} ${txt}`);
+      const r = await apiFetch(`/api/assignments/${a.id}/start/`, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": csrf || "",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      });
+
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        throw new Error(`Start failed: ${r.status} ${txt}`);
+      }
+
+      await loadAssignments();
+
+      const cvId = a.course_version?.id || a.course_version_id || a.course_version;
+      if (cvId) window.location.href = extUrl(`/training/${cvId}/`);
+    } catch (e) {
+      alert(e?.message || "Could not start assignment");
+    } finally {
+      setBusyId(null);
     }
-
-    await loadAssignments();
-
-    const cvId = a.course_version?.id || a.course_version_id || a.course_version;
-    if (cvId) window.location.href = `/training/${cvId}/`;
-  } catch (e) {
-    alert(e?.message || "Could not start assignment");
-  } finally {
-    setBusyId(null);
   }
-}
-
 
   function resumeAssignment(a) {
     const cvId = a.course_version?.id || a.course_version_id || a.course_version;
-    if (cvId) window.location.href = `/training/${cvId}/`;
+    if (cvId) window.location.href = extUrl(`/training/${cvId}/`);
   }
 
   // ---- UI states ----
   if (status === "loading") {
     return <div style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</div>;
   }
-  if (status === "unauth") {
+
+  if (status === "nobackend") {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui" }}>
+      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1>Training Portal</h1>
-        <p>You’re not logged in.</p>
-        <a href="/accounts/login/" style={{ color: COLORS.link }}>Go to Login</a>
+        <p style={{ color: COLORS.warn }}>
+          Backend is not connected. This site is currently running as a static preview on Cloudflare Pages.
+        </p>
+        <p style={{ color: COLORS.muted, maxWidth: 700 }}>
+          To enable login/dashboard, set <code>VITE_API_BASE_URL</code> in Cloudflare Pages to your Django backend URL
+          (e.g. a Railway/Fly/Render deployment).
+        </p>
       </div>
     );
   }
+
+  if (status === "unauth") {
+    return (
+      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
+        <h1>Training Portal</h1>
+        <p>You’re not logged in.</p>
+        <a href={extUrl("/accounts/login/")} style={{ color: COLORS.link }}>
+          Go to Login
+        </a>
+      </div>
+    );
+  }
+
   if (status === "error") {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui" }}>
+      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1>Training Portal</h1>
         <p>Couldn’t load your account.</p>
+        <p style={{ color: COLORS.muted }}>
+          If this is running on Cloudflare Pages, make sure <code>VITE_API_BASE_URL</code> is set and the backend is reachable.
+        </p>
       </div>
     );
   }
@@ -226,16 +279,18 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, color: COLORS.text, fontFamily: "system-ui" }}>
       {/* Top bar */}
-      <div style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "14px 18px",
-        borderBottom: `1px solid ${COLORS.border}`,
-        background: COLORS.topbar,
-        position: "sticky",
-        top: 0
-      }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "14px 18px",
+          borderBottom: `1px solid ${COLORS.border}`,
+          background: COLORS.topbar,
+          position: "sticky",
+          top: 0,
+        }}
+      >
         <div style={{ fontWeight: 700 }}>Training Portal</div>
 
         <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
@@ -245,29 +300,32 @@ export default function App() {
               background: "transparent",
               border: "none",
               color: page === "dashboard" ? COLORS.link : "#e2e8f0",
-              cursor: "pointer"
-            }}>
+              cursor: "pointer",
+            }}
+          >
             Dashboard
           </button>
 
           <button
-            onClick={() => { setPage("courses"); if (coursesStatus === "idle") loadCourses(); }}
+            onClick={() => {
+              setPage("courses");
+              if (coursesStatus === "idle") loadCourses();
+            }}
             style={{
               background: "transparent",
               border: "none",
               color: page === "courses" ? COLORS.link : "#e2e8f0",
-              cursor: "pointer"
-            }}>
+              cursor: "pointer",
+            }}
+          >
             Courses
           </button>
 
           <div style={{ width: 1, height: 18, background: COLORS.border }} />
 
-          <div style={{ fontSize: 13, color: "#cbd5e1" }}>
-            {me.first_name || me.username} {me.last_name || ""}
-          </div>
+          <div style={{ fontSize: 13, color: "#cbd5e1" }}>{(me?.first_name || me?.username || "User") + " " + (me?.last_name || "")}</div>
 
-          <a href="/accounts/logout/" style={{ color: COLORS.link, textDecoration: "none", fontSize: 13 }}>
+          <a href={extUrl("/accounts/logout/")} style={{ color: COLORS.link, textDecoration: "none", fontSize: 13 }}>
             Logout
           </a>
         </div>
@@ -285,41 +343,25 @@ export default function App() {
               </div>
             )}
 
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-              gap: 14
-            }}>
-              <Card
-                title="Assigned"
-                clickable
-                onClick={() => setAssignView("assigned")}
-              >
-                <div style={{ fontSize: 28, fontWeight: 700 }}>
-                  {assignStatus === "loading" ? "…" : counts.assigned}
-                </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                gap: 14,
+              }}
+            >
+              <Card title="Assigned" clickable onClick={() => setAssignView("assigned")}>
+                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.assigned}</div>
                 <div style={{ color: COLORS.muted, fontSize: 13 }}>Not started yet</div>
               </Card>
 
-              <Card
-                title="In Progress"
-                clickable
-                onClick={() => setAssignView("inprogress")}
-              >
-                <div style={{ fontSize: 28, fontWeight: 700 }}>
-                  {assignStatus === "loading" ? "…" : counts.inProgress}
-                </div>
+              <Card title="In Progress" clickable onClick={() => setAssignView("inprogress")}>
+                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.inProgress}</div>
                 <div style={{ color: COLORS.muted, fontSize: 13 }}>Started</div>
               </Card>
 
-              <Card
-                title="Completed"
-                clickable
-                onClick={() => setAssignView("completed")}
-              >
-                <div style={{ fontSize: 28, fontWeight: 700 }}>
-                  {assignStatus === "loading" ? "…" : counts.completed}
-                </div>
+              <Card title="Completed" clickable onClick={() => setAssignView("completed")}>
+                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.completed}</div>
                 <div style={{ color: COLORS.muted, fontSize: 13 }}>Finished</div>
               </Card>
             </div>
@@ -331,7 +373,9 @@ export default function App() {
                 <Pill>View: {assignView === "all" ? "All" : statusLabel(assignView.toUpperCase())}</Pill>
 
                 <button
-                  onClick={() => { setAssignView("all"); }}
+                  onClick={() => {
+                    setAssignView("all");
+                  }}
                   style={{
                     background: "transparent",
                     border: `1px solid ${COLORS.border}`,
@@ -363,9 +407,7 @@ export default function App() {
 
               {assignStatus === "loading" && <div style={{ color: COLORS.muted }}>Loading…</div>}
 
-              {assignStatus !== "loading" && filteredAssignments.length === 0 && (
-                <div style={{ color: COLORS.muted }}>No assignments in this view.</div>
-              )}
+              {assignStatus !== "loading" && filteredAssignments.length === 0 && <div style={{ color: COLORS.muted }}>No assignments in this view.</div>}
 
               {filteredAssignments.length > 0 && (
                 <div style={{ display: "grid", gap: 10 }}>
@@ -395,7 +437,8 @@ export default function App() {
                       >
                         <div style={{ minWidth: 240 }}>
                           <div style={{ fontWeight: 650 }}>
-                            {title} {code ? <span style={{ color: COLORS.muted, fontWeight: 500 }}>({code})</span> : null}
+                            {title}{" "}
+                            {code ? <span style={{ color: COLORS.muted, fontWeight: 500 }}>({code})</span> : null}
                           </div>
                           <div style={{ marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <Pill>{statusLabel(a.status)}</Pill>
@@ -458,21 +501,19 @@ export default function App() {
             {coursesStatus === "ready" && courses.length === 0 && <p>No courses available.</p>}
 
             {coursesStatus === "ready" && courses.length > 0 && (
-              <div style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-                gap: 14
-              }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                  gap: 14,
+                }}
+              >
                 {courses.map((c) => (
                   <Card key={c.id} title={`${c.title} (${c.code})`}>
                     {c.description ? (
-                      <div style={{ fontSize: 13, color: "#cbd5e1", marginBottom: 10 }}>
-                        {c.description}
-                      </div>
+                      <div style={{ fontSize: 13, color: "#cbd5e1", marginBottom: 10 }}>{c.description}</div>
                     ) : (
-                      <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 10 }}>
-                        No description
-                      </div>
+                      <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 10 }}>No description</div>
                     )}
 
                     {c.published_version ? (
@@ -480,9 +521,7 @@ export default function App() {
                         Version <b>{c.published_version.version}</b> · Pass score {c.published_version.pass_score}%
                       </div>
                     ) : (
-                      <div style={{ fontSize: 13, color: COLORS.warn }}>
-                        No published version yet
-                      </div>
+                      <div style={{ fontSize: 13, color: COLORS.warn }}>No published version yet</div>
                     )}
                   </Card>
                 ))}
