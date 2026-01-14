@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.timezone import now
 from django.views.decorators.http import require_POST, require_GET
+from django.http import JsonResponse, HttpResponseNotAllowed
 
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.lib.units import inch
@@ -107,36 +108,7 @@ def video_ping(request, course_version_id: int):
 
 @login_required
 def dashboard(request):
-    assignments = (
-        Assignment.objects
-        .filter(assignee=request.user)
-        .select_related("course_version", "course_version__course")
-    )
-
-    rows = []
-    for a in assignments:
-        cycle = a.cycles.first()  # ordering = ["-completed_at"] on AssignmentCycle
-        days_remaining = None
-        status_label = a.status
-
-        if cycle:
-            days_remaining = (cycle.expires_at.date() - now().date()).days
-
-            if days_remaining < 0:
-                status_label = "EXPIRED"
-            elif days_remaining <= 30:
-                status_label = "DUE SOON"
-            else:
-                status_label = "COMPLIANT"
-
-        rows.append({
-            "assignment": a,
-            "cycle": cycle,
-            "days_remaining": days_remaining,
-            "status_label": status_label,
-        })
-
-    return render(request, "courses/dashboard.html", {"rows": rows})
+    return redirect("/app")
 
 
 # ----------------------------
@@ -439,3 +411,55 @@ def my_assignments(request):
             }
         })
     return JsonResponse({"results": data})
+
+
+@login_required
+def start_assignment(request, assignment_id):
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    a = get_object_or_404(Assignment, id=assignment_id, assignee=request.user)
+
+    # Only move ASSIGNED -> IN_PROGRESS (don’t mess with COMPLETED)
+    if a.status == Assignment.Status.ASSIGNED:
+        a.status = Assignment.Status.IN_PROGRESS
+        a.save(update_fields=["status"])
+
+    return JsonResponse({
+        "ok": True,
+        "id": a.id,
+        "status": a.status,
+    })
+
+
+@login_required
+def my_assignment_detail(request, assignment_id):
+    a = get_object_or_404(
+        Assignment.objects.select_related("course_version", "course_version__course"),
+        id=assignment_id,
+        assignee=request.user,
+    )
+
+    cv = a.course_version
+    c = cv.course
+
+    return JsonResponse({
+        "id": a.id,
+        "status": a.status,
+        "assigned_at": a.assigned_at.isoformat(),
+        "due_at": a.due_at.isoformat() if a.due_at else None,
+        "course": {
+            "id": c.id,
+            "code": c.code,
+            "title": c.title,
+            "description": c.description,
+        },
+        "course_version": {
+            "id": cv.id,
+            "version": cv.version,
+            "pass_score": cv.pass_score,
+            "video_url": cv.video_file.url if cv.video_file else None,
+            "pdf_url": cv.pdf_file.url if cv.pdf_file else None,
+            "is_published": cv.is_published,
+        },
+    })

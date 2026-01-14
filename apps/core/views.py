@@ -3,8 +3,18 @@ from django.conf import settings
 from django.http import FileResponse, Http404
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 @login_required(login_url="/accounts/login/")
+def react_app(request):
+    index_path = os.path.join(settings.BASE_DIR, "static", "app", "index.html")
+    if not os.path.exists(index_path):
+        raise Http404("React build not found. Build frontend and copy to static/app.")
+    return FileResponse(open(index_path, "rb"))
+
+
+@login_required(login_url="/accounts/login/")
+@ensure_csrf_cookie
 def react_app(request):
     index_path = os.path.join(settings.BASE_DIR, "static", "app", "index.html")
     if not os.path.exists(index_path):

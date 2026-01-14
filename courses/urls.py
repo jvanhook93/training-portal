@@ -16,5 +16,8 @@ urlpatterns = [
     path("training/<int:course_version_id>/quiz/submit/", views.submit_quiz, name="submit_quiz"),
 
     path("api/courses/", views.courses_list, name="api-courses-list"),
-    path("api/me/assignments/", views.my_assignments, name="api-my-assignments"),
+    path("api/me/assignments/<int:assignment_id>/", views.my_assignment_detail, name="api-my-assignment-detail"),
+
+    path("api/me/assignments/", views.my_assignments, name="my-assignments"),
+    path("api/assignments/<int:assignment_id>/start/", views.start_assignment, name="start-assignment"),
 ]

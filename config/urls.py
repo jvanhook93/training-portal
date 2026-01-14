@@ -5,12 +5,24 @@ from django.contrib.auth import views as auth_views
 from apps.core import views as core_views
 from accounts import views as accounts_views
 from apps.core.views import react_app
+from django.http import JsonResponse
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.contrib.auth.decorators import login_required
+from django.conf import settings
+from django.conf.urls.static import static
 
 
 def root_redirect(request):
     if request.user.is_authenticated:
-        return redirect("dashboard")
+        return redirect("/app")
     return redirect("login")
+
+
+
+@ensure_csrf_cookie
+@login_required
+def csrf(request):
+    return JsonResponse({"ok": True})
 
 
 urlpatterns = [
@@ -20,7 +32,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("audits/", include("audits.urls")),
     path("", include("courses.urls")),
-    path("api/", include("courses.urls")),
+    path("api/csrf/", csrf, name="api-csrf"),
 
     # Registration (your real POST-handling view)
     path("accounts/register/", accounts_views.register, name="register"),
@@ -43,3 +55,6 @@ urlpatterns = [
     # React SPA
     re_path(r"^app(?:/.*)?$", react_app),
 ]
+
+
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
