@@ -20,3 +20,14 @@ staticfiles/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# React build output
+/static/app/
+/training-portal/static/app/
+/frontend/dist/
+/frontend/node_modules/
+
+# Python
+.venv/
+__pycache__/
+*.pyc

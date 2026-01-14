@@ -10,13 +10,14 @@ from django.http import Http404, HttpResponse, HttpResponseForbidden, JsonRespon
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.timezone import now
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
 
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
+from django.db.models import Prefetch
 
-from .models import Assignment, AssignmentCycle, CourseVersion, VideoProgress
+from .models import Assignment, AssignmentCycle, CourseVersion, VideoProgress, Course, CourseVersion, Assignment
 
 
 # ----------------------------
@@ -367,3 +368,74 @@ def submit_quiz(request, course_version_id: int):
 
     messages.error(request, f"Quiz failed. Score: {score}% (need {cv.pass_score}%)")
     return redirect("take_quiz", course_version_id=cv.id)
+
+
+@require_GET
+@login_required
+def courses_list(request):
+    """
+    All active courses + their published version (if any).
+    """
+    published_versions = CourseVersion.objects.filter(is_published=True).order_by("-published_at")
+
+    courses = (
+        Course.objects.filter(is_active=True)
+        .prefetch_related(Prefetch("versions", queryset=published_versions, to_attr="published"))
+        .order_by("code")
+    )
+
+    data = []
+    for c in courses:
+        pv = c.published[0] if getattr(c, "published", []) else None
+        data.append({
+            "id": c.id,
+            "code": c.code,
+            "title": c.title,
+            "description": c.description,
+            "published_version": None if not pv else {
+                "id": pv.id,
+                "version": pv.version,
+                "published_at": pv.published_at.isoformat() if pv.published_at else None,
+                "pass_score": pv.pass_score,
+                "has_video": bool(pv.video_file),
+                "has_pdf": bool(pv.pdf_file),
+                "quiz_required": getattr(getattr(pv, "course_quiz", None), "is_required", False),
+            }
+        })
+    return JsonResponse({"results": data})
+
+
+@require_GET
+@login_required
+def my_assignments(request):
+    """
+    Assignments for the current user.
+    """
+    qs = (
+        Assignment.objects
+        .filter(assignee=request.user)
+        .select_related("course_version", "course_version__course")
+        .order_by("-assigned_at")
+    )
+
+    data = []
+    for a in qs:
+        cv = a.course_version
+        c = cv.course
+        data.append({
+            "id": a.id,
+            "status": a.status,
+            "assigned_at": a.assigned_at.isoformat(),
+            "due_at": a.due_at.isoformat() if a.due_at else None,
+            "course": {
+                "id": c.id,
+                "code": c.code,
+                "title": c.title,
+            },
+            "course_version": {
+                "id": cv.id,
+                "version": cv.version,
+                "pass_score": cv.pass_score,
+            }
+        })
+    return JsonResponse({"results": data})
