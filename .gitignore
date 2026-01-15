@@ -1,4 +1,6 @@
-# Python
+# =========================
+# Python / Django
+# =========================
 __pycache__/
 *.pyc
 *.pyo
@@ -7,34 +9,37 @@ __pycache__/
 env/
 venv/
 
-# Django
 db.sqlite3
 media/
+
+# Collected static (DO NOT COMMIT)
 staticfiles/
 
-# Local settings / secrets
-.env
-*.log
+# =========================
+# Django static source
+# =========================
+# Ignore all static files by default
+static/*
 
-# OS / IDE
-.vscode/
-.DS_Store
-Thumbs.db
+# BUT allow the React app build for /app
+!static/app/
+!static/app/**
 
-# React build output
-/static/app/
-/training-portal/static/app/
-/frontend/dist/
-/frontend/node_modules/
-
-# Python
-.venv/
-__pycache__/
-*.pyc
-
-# frontend deps/build
+# =========================
+# Frontend (React/Vite)
+# =========================
 frontend/node_modules/
 frontend/dist/
 
-# django collected static
-staticfiles/
+# =========================
+# Environment / secrets
+# =========================
+.env
+*.log
+
+# =========================
+# OS / IDE
+# =========================
+.vscode/
+.DS_Store
+Thumbs.db
