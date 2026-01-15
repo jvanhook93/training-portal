@@ -11,33 +11,34 @@ const COLORS = {
   warn: "#fbbf24",
 };
 
+// --- API base (Cloudflare Pages needs absolute backend URL) ---
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = RAW_API_BASE.replace(/\/+$/, ""); // trim trailing slash
+
+function joinUrl(base, path) {
+  if (!base) return path;
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${p}`;
+}
+
+// API calls (cookie auth)
+async function apiFetch(path, init = {}) {
+  return fetch(joinUrl(API_BASE, path), {
+    credentials: "include",
+    ...init,
+  });
+}
+
+// For Django pages that must be opened on the backend origin
+function extUrl(path) {
+  return joinUrl(API_BASE, path);
+}
+
 function getCookie(name) {
   const value = `; ${document.cookie}`;
   const parts = value.split(`; ${name}=`);
   if (parts.length === 2) return parts.pop().split(";").shift();
   return null;
-}
-
-// --- API base (Cloudflare Pages needs absolute backend URL) ---
-const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
-const API_BASE = RAW_API_BASE.replace(/\/+$/, ""); // trim trailing slash
-
-function apiUrl(path) {
-  // path like "/api/me/"
-  if (!API_BASE) return path; // fallback for local dev/proxy
-  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
-}
-
-function extUrl(path) {
-  // for login/logout/training routes that live on Django
-  if (!API_BASE) return path;
-  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
-}
-
-async function apiFetch(path, init = {}) {
-  // Always include cookies for session auth
-  const r = await fetch(apiUrl(path), { credentials: "include", ...init });
-  return r;
 }
 
 function Card({ title, children, onClick, clickable }) {
@@ -55,7 +56,9 @@ function Card({ title, children, onClick, clickable }) {
         userSelect: "none",
       }}
     >
-      <div style={{ fontSize: 14, color: "#cbd5e1", marginBottom: 10 }}>{title}</div>
+      <div style={{ fontSize: 14, color: "#cbd5e1", marginBottom: 10 }}>
+        {title}
+      </div>
       {children}
     </div>
   );
@@ -113,7 +116,6 @@ export default function App() {
   // ---- boot auth ----
   useEffect(() => {
     (async () => {
-      // On Cloudflare Pages, if you didn't set VITE_API_BASE_URL, we cannot auth.
       if (!API_BASE) {
         setStatus("nobackend");
         return;
@@ -175,12 +177,11 @@ export default function App() {
   }, [status]);
 
   const counts = useMemo(() => {
-    const total = assignments.length;
     const completed = assignments.filter((a) => a.status === "COMPLETED").length;
     const inProgress = assignments.filter((a) => a.status === "IN_PROGRESS").length;
     const assigned = assignments.filter((a) => a.status === "ASSIGNED").length;
     const overdue = assignments.filter((a) => a.status === "OVERDUE").length;
-    return { total, assigned, inProgress, completed, overdue };
+    return { assigned, inProgress, completed, overdue, total: assignments.length };
   }, [assignments]);
 
   const filteredAssignments = useMemo(() => {
@@ -197,10 +198,9 @@ export default function App() {
 
       if (!API_BASE) throw new Error("Backend URL is not configured.");
 
-      // 1) hit CSRF endpoint to ensure cookie exists
+      // Ensure CSRF cookie exists (your backend should set csrftoken)
       await apiFetch("/api/csrf/");
 
-      // 2) read the cookie and send it
       const csrf = getCookie("csrftoken");
 
       const r = await apiFetch(`/api/assignments/${a.id}/start/`, {
@@ -242,11 +242,11 @@ export default function App() {
       <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1>Training Portal</h1>
         <p style={{ color: COLORS.warn }}>
-          Backend is not connected. This site is currently running as a static preview on Cloudflare Pages.
+          Backend is not connected. This site is running as a static preview on Cloudflare Pages.
         </p>
         <p style={{ color: COLORS.muted, maxWidth: 700 }}>
-          To enable login/dashboard, set <code>VITE_API_BASE_URL</code> in Cloudflare Pages to your Django backend URL
-          (e.g. a Railway/Fly/Render deployment).
+          Set <code>VITE_API_BASE_URL</code> in Cloudflare Pages to your Django backend URL
+          (example: <code>https://web-production-4c59f.up.railway.app</code>).
         </p>
       </div>
     );
@@ -323,7 +323,9 @@ export default function App() {
 
           <div style={{ width: 1, height: 18, background: COLORS.border }} />
 
-          <div style={{ fontSize: 13, color: "#cbd5e1" }}>{(me?.first_name || me?.username || "User") + " " + (me?.last_name || "")}</div>
+          <div style={{ fontSize: 13, color: "#cbd5e1" }}>
+            {(me?.first_name || me?.username || "User") + " " + (me?.last_name || "")}
+          </div>
 
           <a href={extUrl("/accounts/logout/")} style={{ color: COLORS.link, textDecoration: "none", fontSize: 13 }}>
             Logout
@@ -343,13 +345,7 @@ export default function App() {
               </div>
             )}
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                gap: 14,
-              }}
-            >
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
               <Card title="Assigned" clickable onClick={() => setAssignView("assigned")}>
                 <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.assigned}</div>
                 <div style={{ color: COLORS.muted, fontSize: 13 }}>Not started yet</div>
@@ -373,9 +369,7 @@ export default function App() {
                 <Pill>View: {assignView === "all" ? "All" : statusLabel(assignView.toUpperCase())}</Pill>
 
                 <button
-                  onClick={() => {
-                    setAssignView("all");
-                  }}
+                  onClick={() => setAssignView("all")}
                   style={{
                     background: "transparent",
                     border: `1px solid ${COLORS.border}`,
@@ -407,7 +401,9 @@ export default function App() {
 
               {assignStatus === "loading" && <div style={{ color: COLORS.muted }}>Loading…</div>}
 
-              {assignStatus !== "loading" && filteredAssignments.length === 0 && <div style={{ color: COLORS.muted }}>No assignments in this view.</div>}
+              {assignStatus !== "loading" && filteredAssignments.length === 0 && (
+                <div style={{ color: COLORS.muted }}>No assignments in this view.</div>
+              )}
 
               {filteredAssignments.length > 0 && (
                 <div style={{ display: "grid", gap: 10 }}>
@@ -418,7 +414,8 @@ export default function App() {
                     const due = a.due_at || null;
 
                     const canStart = a.status === "ASSIGNED";
-                    const canResume = a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
+                    const canResume =
+                      a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
 
                     return (
                       <div
@@ -438,7 +435,9 @@ export default function App() {
                         <div style={{ minWidth: 240 }}>
                           <div style={{ fontWeight: 650 }}>
                             {title}{" "}
-                            {code ? <span style={{ color: COLORS.muted, fontWeight: 500 }}>({code})</span> : null}
+                            {code ? (
+                              <span style={{ color: COLORS.muted, fontWeight: 500 }}>({code})</span>
+                            ) : null}
                           </div>
                           <div style={{ marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <Pill>{statusLabel(a.status)}</Pill>
@@ -501,24 +500,23 @@ export default function App() {
             {coursesStatus === "ready" && courses.length === 0 && <p>No courses available.</p>}
 
             {coursesStatus === "ready" && courses.length > 0 && (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-                  gap: 14,
-                }}
-              >
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
                 {courses.map((c) => (
                   <Card key={c.id} title={`${c.title} (${c.code})`}>
                     {c.description ? (
-                      <div style={{ fontSize: 13, color: "#cbd5e1", marginBottom: 10 }}>{c.description}</div>
+                      <div style={{ fontSize: 13, color: "#cbd5e1", marginBottom: 10 }}>
+                        {c.description}
+                      </div>
                     ) : (
-                      <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 10 }}>No description</div>
+                      <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 10 }}>
+                        No description
+                      </div>
                     )}
 
                     {c.published_version ? (
                       <div style={{ fontSize: 13 }}>
-                        Version <b>{c.published_version.version}</b> · Pass score {c.published_version.pass_score}%
+                        Version <b>{c.published_version.version}</b> · Pass score{" "}
+                        {c.published_version.pass_score}%
                       </div>
                     ) : (
                       <div style={{ fontSize: 13, color: COLORS.warn }}>No published version yet</div>
