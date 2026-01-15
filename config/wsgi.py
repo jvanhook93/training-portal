@@ -14,3 +14,10 @@ from django.core.wsgi import get_wsgi_application
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
 application = get_wsgi_application()
+
+
+try:
+    from config.bootstrap_admin import bootstrap_admin
+    bootstrap_admin()
+except Exception:
+    pass
