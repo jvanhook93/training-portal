@@ -26,3 +26,5 @@ class Command(BaseCommand):
         user.save()
 
         self.stdout.write(f"bootstrap_admin: {'created' if created else 'updated'} superuser '{username}'.")
+        self.stdout.write("bootstrap_admin: running...")
+        self.stdout.write(f"bootstrap_admin: updated superuser '{username}'.")
