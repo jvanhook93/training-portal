@@ -3,7 +3,7 @@ from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 
 class Command(BaseCommand):
-    help = "Create an initial superuser from env vars (non-interactive)."
+    help = "Create/reset a superuser from env vars (non-interactive)."
 
     def handle(self, *args, **options):
         username = os.getenv("ADMIN_USERNAME", "").strip()
@@ -16,15 +16,13 @@ class Command(BaseCommand):
 
         User = get_user_model()
         user, created = User.objects.get_or_create(username=username, defaults={"email": email})
-        if created:
-            user.is_staff = True
-            user.is_superuser = True
-            user.set_password(password)
-            user.save()
-            self.stdout.write(f"bootstrap_admin: created superuser '{username}'.")
-        else:
-            if not user.is_staff or not user.is_superuser:
-                user.is_staff = True
-                user.is_superuser = True
-                user.save()
-            self.stdout.write(f"bootstrap_admin: superuser '{username}' already exists.")
+
+        # Always enforce superuser + reset password (so it can't be 'wrong')
+        user.is_staff = True
+        user.is_superuser = True
+        if email:
+            user.email = email
+        user.set_password(password)
+        user.save()
+
+        self.stdout.write(f"bootstrap_admin: {'created' if created else 'updated'} superuser '{username}'.")
