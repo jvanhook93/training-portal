@@ -1,42 +1,21 @@
 from django.contrib import admin
 from django.utils.timezone import now
+
 from .models import (
     Course,
     CourseVersion,
     Assignment,
     AssignmentCycle,
     VideoProgress,
+    AssignmentRule,
     Quiz,
     QuizQuestion,
     QuizChoice,
 )
 
-# ---------
+# --------------------
 # Inlines
-# ---------
-
-class QuizChoiceInline(admin.TabularInline):
-    model = QuizChoice
-    extra = 3
-    fields = ("text", "is_correct")
-    ordering = ("id",)
-
-
-class QuizQuestionInline(admin.StackedInline):
-    model = QuizQuestion
-    extra = 1
-    fields = ("order", "prompt")
-    ordering = ("order", "id")
-    show_change_link = True
-
-
-# ---------
-# Admins
-# ---------
-
-# ---------
-# Inlines
-# ---------
+# --------------------
 
 class CourseVersionInline(admin.TabularInline):
     model = CourseVersion
@@ -69,13 +48,12 @@ class QuizQuestionInline(admin.StackedInline):
     show_change_link = True
 
 
-# ---------
+# --------------------
 # Actions
-# ---------
+# --------------------
 
 @admin.action(description="Publish selected course versions (set published_at)")
 def publish_course_versions(modeladmin, request, queryset):
-    # Mark published and set published_at if missing.
     updated = 0
     for cv in queryset:
         changed = False
@@ -87,12 +65,6 @@ def publish_course_versions(modeladmin, request, queryset):
         if cv.published_at is None:
             cv.published_at = now()
             changed = True
-
-        # Optional: if you publish, you probably don't want it retired.
-        # Uncomment if you want this behavior:
-        # if cv.retired_at is not None:
-        #     cv.retired_at = None
-        #     changed = True
 
         if changed:
             cv.save(update_fields=["is_published", "published_at"])
@@ -107,9 +79,9 @@ def unpublish_course_versions(modeladmin, request, queryset):
     modeladmin.message_user(request, f"Unpublished {updated} course version(s).")
 
 
-# ---------
-# Admins
-# ---------
+# --------------------
+# ModelAdmins
+# --------------------
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
@@ -128,7 +100,6 @@ class CourseVersionAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at",)
     actions = (publish_course_versions, unpublish_course_versions)
 
-    # Optional: make uploads visible/organized on the edit page
     fields = (
         "course",
         "version",
@@ -143,10 +114,6 @@ class CourseVersionAdmin(admin.ModelAdmin):
         "created_at",
     )
 
-    # This gives you a nice “Quiz” link on the CourseVersion page if it exists
-    def quiz_status(self, obj):
-        return "✅" if hasattr(obj, "course_quiz") else "—"
-
 
 @admin.register(Quiz)
 class QuizAdmin(admin.ModelAdmin):
@@ -154,7 +121,6 @@ class QuizAdmin(admin.ModelAdmin):
     list_filter = ("is_required", "course_version__course__code")
     search_fields = ("course_version__course__code", "course_version__course__title", "course_version__version")
     autocomplete_fields = ("course_version",)
-
     inlines = (QuizQuestionInline,)
 
 
@@ -165,11 +131,10 @@ class QuizQuestionAdmin(admin.ModelAdmin):
     search_fields = ("prompt",)
     ordering = ("quiz", "order", "id")
     autocomplete_fields = ("quiz",)
-
     inlines = (QuizChoiceInline,)
 
     def short_prompt(self, obj):
-        return (obj.prompt[:60] + "…") if len(obj.prompt) > 60 else obj.prompt
+        return (obj.prompt[:60] + "…") if obj.prompt and len(obj.prompt) > 60 else (obj.prompt or "")
 
 
 @admin.register(QuizChoice)
@@ -202,3 +167,12 @@ class VideoProgressAdmin(admin.ModelAdmin):
     list_filter = ("percent", "course_version__course__code")
     search_fields = ("user__username", "user__email", "course_version__course__title")
     autocomplete_fields = ("user", "course_version")
+
+
+@admin.register(AssignmentRule)
+class AssignmentRuleAdmin(admin.ModelAdmin):
+    list_display = ("name", "course_version", "frequency", "cycle_days", "remind_days_before", "is_active", "last_run_at")
+    list_filter = ("is_active", "frequency", "course_version__course__code")
+    search_fields = ("name", "course_version__course__code", "course_version__course__title", "course_version__version")
+    autocomplete_fields = ("course_version",)
+    readonly_fields = ("created_at",)

@@ -3,6 +3,7 @@ from django.db import models
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 import uuid
+from django.contrib.auth import get_user_model
 
 class Course(models.Model):
     """
@@ -104,47 +105,80 @@ class Assignment(models.Model):
 
 
 class AssignmentCycle(models.Model):
-    """
-    One completed compliance cycle for an assignment.
-    This preserves history for audits and drives expiration logic.
-    """
     assignment = models.ForeignKey(
         Assignment,
         on_delete=models.CASCADE,
         related_name="cycles"
     )
 
-    completed_at = models.DateTimeField(default=now)
-    expires_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     score = models.PositiveSmallIntegerField(null=True, blank=True)
-    passed = models.BooleanField(default=True)
+    passed = models.BooleanField(default=False)
 
     certificate_id = models.CharField(max_length=32, unique=True, editable=False)
+
+    reminder_30_sent_at = models.DateTimeField(null=True, blank=True)
+    reminder_7_sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-completed_at"]
         permissions = [
-        ("can_audit_certs", "Can search and download certificates for all users"),
+            ("can_audit_certs", "Can search and download certificates for all users"),
         ]
 
     def save(self, *args, **kwargs):
-        if not self.pk:
-            # Auto-generate cert id
+        is_new = self.pk is None
+
+        if is_new and not self.certificate_id:
             self.certificate_id = uuid.uuid4().hex[:10]
 
-            # Default 11-month expiration unless overridden later
+        # Only set expires_at when a completion exists
+        if self.completed_at and not self.expires_at:
             self.expires_at = self.completed_at + relativedelta(months=11)
 
         super().save(*args, **kwargs)
 
     @property
     def days_remaining(self):
+        if not self.expires_at:
+            return None
         return (self.expires_at.date() - now().date()).days
 
     def __str__(self):
-        return f"{self.assignment} completed {self.completed_at.date()}"
+        d = self.completed_at.date() if self.completed_at else "—"
+        return f"{self.assignment} completed {d}"
 
+
+User = get_user_model()
+
+class AssignmentRule(models.Model):
+    FREQUENCY_CHOICES = [
+        ("ANNUAL", "Annual"),
+        ("SEMIANNUAL", "Semiannual"),
+        ("QUARTERLY", "Quarterly"),
+        ("MONTHLY", "Monthly"),
+    ]
+
+    name = models.CharField(max_length=200)
+    course_version = models.ForeignKey("courses.CourseVersion", on_delete=models.CASCADE)
+
+    # who gets assigned (start simple: everyone; later: groups/departments)
+    assign_to_all_users = models.BooleanField(default=True)
+
+    frequency = models.CharField(max_length=20, choices=FREQUENCY_CHOICES, default="ANNUAL")
+
+    # expiration window & reminder behavior
+    cycle_days = models.PositiveIntegerField(default=365)     # expires_at = assigned_at + cycle_days
+    remind_days_before = models.PositiveIntegerField(default=30)
+
+    is_active = models.BooleanField(default=True)
+
+    # tracking so we don’t create duplicates
+    last_run_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
 
 class Quiz(models.Model):
     course_version = models.OneToOneField(
