@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.shortcuts import redirect
-from django.contrib.auth import views as auth_views
+from django.contrib.auth import views as auth_views, logout
 from django.http import JsonResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.contrib.auth.decorators import login_required
@@ -11,6 +11,12 @@ from django.conf.urls.static import static
 from apps.core import views as core_views
 from accounts import views as accounts_views
 from apps.core.views import react_app
+
+
+def logout_then_login(request):
+    # Works for GET or POST, no template needed.
+    logout(request)
+    return redirect("/accounts/login/")
 
 
 def root_redirect(request):
@@ -48,6 +54,7 @@ urlpatterns = [
 
     # --- API ---
     path("api/me/", core_views.me, name="api-me"),
+    path("accounts/logout/", logout_then_login, name="logout"),
     path("api/csrf/", csrf, name="api-csrf"),
 
     # --- Other apps ---
