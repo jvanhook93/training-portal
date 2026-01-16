@@ -2,21 +2,21 @@ from django.contrib import admin
 from django.urls import path, include, re_path
 from django.shortcuts import redirect
 from django.contrib.auth import views as auth_views
-from apps.core import views as core_views
-from accounts import views as accounts_views
-from apps.core.views import react_app
 from django.http import JsonResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.conf.urls.static import static
 
+from apps.core import views as core_views
+from accounts import views as accounts_views
+from apps.core.views import react_app
+
 
 def root_redirect(request):
     if request.user.is_authenticated:
         return redirect("/app")
-    return redirect("login")
-
+    return redirect("/accounts/login/")
 
 
 @ensure_csrf_cookie
@@ -26,18 +26,14 @@ def csrf(request):
 
 
 urlpatterns = [
+    # --- Root ---
     path("", root_redirect),
 
-    path("api/me/", core_views.me, name="api-me"),
+    # --- Admin MUST be early so nothing else can intercept it ---
     path("admin/", admin.site.urls),
-    path("audits/", include("audits.urls")),
-    path("", include("courses.urls")),
-    path("api/csrf/", csrf, name="api-csrf"),
 
-    # Registration (your real POST-handling view)
+    # --- Auth / Accounts ---
     path("accounts/register/", accounts_views.register, name="register"),
-
-    # Auth (use your custom login template)
     path(
         "accounts/login/",
         auth_views.LoginView.as_view(template_name="accounts/login.html"),
@@ -48,13 +44,23 @@ urlpatterns = [
         auth_views.LogoutView.as_view(next_page="/accounts/login/"),
         name="logout",
     ),
-
-    # Django built-in auth routes (password reset, etc.)
     path("accounts/", include("django.contrib.auth.urls")),
 
-    # React SPA
+    # --- API ---
+    path("api/me/", core_views.me, name="api-me"),
+    path("api/csrf/", csrf, name="api-csrf"),
+
+    # --- Other apps ---
+    path("audits/", include("audits.urls")),
+
+    # --- React SPA (ONLY /app) ---
+    # Matches /app and anything under it: /app, /app/, /app/whatever
     re_path(r"^app(?:/.*)?$", react_app),
+
+    # --- Courses (kept at root) ---
+    # IMPORTANT: This stays LAST so it can't swallow /admin or /accounts
+    path("", include("courses.urls")),
 ]
 
-
+# Media in dev (fine to keep)
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
