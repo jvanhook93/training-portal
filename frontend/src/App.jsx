@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
-const BACKEND = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+// ---- Backend base (must be absolute on Cloudflare Pages) ----
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE = RAW_API_BASE.replace(/\/+$/, ""); // trim trailing slashes
 
 const COLORS = {
   bg: "#0b0f19",
@@ -12,10 +14,6 @@ const COLORS = {
   link: "#93c5fd",
   warn: "#fbbf24",
 };
-
-// --- API base (Cloudflare Pages needs absolute backend URL) ---
-const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
-const API_BASE = RAW_API_BASE.replace(/\/+$/, ""); // trim trailing slash
 
 function joinUrl(base, path) {
   if (!base) return path;
@@ -33,6 +31,11 @@ async function apiFetch(path, init = {}) {
 
 // For Django pages that must be opened on the backend origin
 function extUrl(path) {
+  return joinUrl(API_BASE, path);
+}
+
+// Always go to backend for admin/auth/training routes
+function backendUrl(path) {
   return joinUrl(API_BASE, path);
 }
 
@@ -200,9 +203,8 @@ export default function App() {
 
       if (!API_BASE) throw new Error("Backend URL is not configured.");
 
-      // Ensure CSRF cookie exists (your backend should set csrftoken)
+      // Ensure CSRF cookie exists
       await apiFetch("/api/csrf/");
-
       const csrf = getCookie("csrftoken");
 
       const r = await apiFetch(`/api/assignments/${a.id}/start/`, {
@@ -228,13 +230,6 @@ export default function App() {
       setBusyId(null);
     }
   }
-
-  function backendUrl(path) {
-  // Always go to Django backend (Railway) for admin/auth/training routes
-  if (!API_BASE) return path; // local dev fallback
-  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
-  }
-
 
   function resumeAssignment(a) {
     const cvId = a.course_version?.id || a.course_version_id || a.course_version;
@@ -262,13 +257,59 @@ export default function App() {
   }
 
   if (status === "unauth") {
+    if (!API_BASE) {
+      return (
+        <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
+          <h1>Training Portal</h1>
+          <p style={{ color: COLORS.warn }}>Backend URL is not configured.</p>
+        </div>
+      );
+    }
+
+    const loginUrl = backendUrl("/accounts/login/?next=/app");
+    const appUrl = backendUrl("/app");
+
     return (
       <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
-        <h1>Training Portal</h1>
-        <p>You’re not logged in.</p>
-        <a href={`${BACKEND}/accounts/login/?next=/app`} style={{ color: COLORS.link }}>
-          Go to Login
-        </a>
+        <h1 style={{ margin: "0 0 10px" }}>Training Portal</h1>
+        <p style={{ margin: "0 0 16px", color: "#cbd5e1" }}>
+          You’re not logged in. Login happens on the backend so your session cookie works.
+        </p>
+
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <a
+            href={loginUrl}
+            style={{
+              color: "#0b0f19",
+              background: COLORS.link,
+              textDecoration: "none",
+              padding: "10px 14px",
+              borderRadius: 12,
+              fontWeight: 700,
+              display: "inline-block",
+            }}
+          >
+            Login on Railway
+          </a>
+
+          <a
+            href={appUrl}
+            style={{
+              color: COLORS.link,
+              border: `1px solid ${COLORS.border}`,
+              textDecoration: "none",
+              padding: "10px 14px",
+              borderRadius: 12,
+              display: "inline-block",
+            }}
+          >
+            Open App
+          </a>
+        </div>
+
+        <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
+          Backend: <code>{API_BASE}</code>
+        </div>
       </div>
     );
   }
@@ -335,28 +376,40 @@ export default function App() {
           <div style={{ fontSize: 13, color: "#cbd5e1" }}>
             {(me?.first_name || me?.username || "User") + " " + (me?.last_name || "")}
           </div>
-          
-            {(me?.is_staff || me?.is_superuser) && (
-              <a
-                href={backendUrl("/admin/")}
-                style={{
-                  color: COLORS.link,
-                  textDecoration: "none",
-                  fontSize: 13,
-                  border: `1px solid ${COLORS.border}`,
-                  padding: "6px 10px",
-                  borderRadius: 10,
-                  background: "rgba(255,255,255,.04)",
-                }}
-              >
-                Admin
-              </a>
-            )}
 
+          {(me?.is_staff || me?.is_superuser) && (
+            <a
+              href={backendUrl("/admin/")}
+              style={{
+                color: COLORS.link,
+                textDecoration: "none",
+                fontSize: 13,
+                border: `1px solid ${COLORS.border}`,
+                padding: "6px 10px",
+                borderRadius: 10,
+                background: "rgba(255,255,255,.04)",
+              }}
+            >
+              Admin
+            </a>
+          )}
 
-          <a href={extUrl("/accounts/logout/")} style={{ color: COLORS.link, textDecoration: "none", fontSize: 13 }}>
-            Logout
-          </a>
+          {/* IMPORTANT: Django logout view is POST in your setup -> use a POST form */}
+          <form method="POST" action={backendUrl("/accounts/logout/")} style={{ margin: 0 }}>
+            <button
+              type="submit"
+              style={{
+                background: "transparent",
+                border: "none",
+                color: COLORS.link,
+                cursor: "pointer",
+                fontSize: 13,
+                padding: 0,
+              }}
+            >
+              Logout
+            </button>
+          </form>
         </div>
       </div>
 
@@ -441,8 +494,7 @@ export default function App() {
                     const due = a.due_at || null;
 
                     const canStart = a.status === "ASSIGNED";
-                    const canResume =
-                      a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
+                    const canResume = a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
 
                     return (
                       <div
@@ -462,9 +514,7 @@ export default function App() {
                         <div style={{ minWidth: 240 }}>
                           <div style={{ fontWeight: 650 }}>
                             {title}{" "}
-                            {code ? (
-                              <span style={{ color: COLORS.muted, fontWeight: 500 }}>({code})</span>
-                            ) : null}
+                            {code ? <span style={{ color: COLORS.muted, fontWeight: 500 }}>({code})</span> : null}
                           </div>
                           <div style={{ marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <Pill>{statusLabel(a.status)}</Pill>
@@ -531,19 +581,14 @@ export default function App() {
                 {courses.map((c) => (
                   <Card key={c.id} title={`${c.title} (${c.code})`}>
                     {c.description ? (
-                      <div style={{ fontSize: 13, color: "#cbd5e1", marginBottom: 10 }}>
-                        {c.description}
-                      </div>
+                      <div style={{ fontSize: 13, color: "#cbd5e1", marginBottom: 10 }}>{c.description}</div>
                     ) : (
-                      <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 10 }}>
-                        No description
-                      </div>
+                      <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 10 }}>No description</div>
                     )}
 
                     {c.published_version ? (
                       <div style={{ fontSize: 13 }}>
-                        Version <b>{c.published_version.version}</b> · Pass score{" "}
-                        {c.published_version.pass_score}%
+                        Version <b>{c.published_version.version}</b> · Pass score {c.published_version.pass_score}%
                       </div>
                     ) : (
                       <div style={{ fontSize: 13, color: COLORS.warn }}>No published version yet</div>
