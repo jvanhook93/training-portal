@@ -31,10 +31,10 @@ def me(request):
 
     u = request.user
     return JsonResponse({
-        "id": u.id,
-        "username": u.username,
-        "email": u.email,
-        "first_name": u.first_name,
-        "last_name": u.last_name,
-        "is_staff": u.is_staff,
+    "id": request.user.id,
+    "username": request.user.username,
+    "first_name": request.user.first_name,
+    "last_name": request.user.last_name,
+    "is_staff": request.user.is_staff,
+    "is_superuser": request.user.is_superuser,
     })

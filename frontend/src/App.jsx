@@ -227,6 +227,13 @@ export default function App() {
     }
   }
 
+  function backendUrl(path) {
+  // Always go to Django backend (Railway) for admin/auth/training routes
+  if (!API_BASE) return path; // local dev fallback
+  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+  }
+
+
   function resumeAssignment(a) {
     const cvId = a.course_version?.id || a.course_version_id || a.course_version;
     if (cvId) window.location.href = extUrl(`/training/${cvId}/`);
@@ -326,6 +333,24 @@ export default function App() {
           <div style={{ fontSize: 13, color: "#cbd5e1" }}>
             {(me?.first_name || me?.username || "User") + " " + (me?.last_name || "")}
           </div>
+          
+            {(me?.is_staff || me?.is_superuser) && (
+              <a
+                href={backendUrl("/admin/")}
+                style={{
+                  color: COLORS.link,
+                  textDecoration: "none",
+                  fontSize: 13,
+                  border: `1px solid ${COLORS.border}`,
+                  padding: "6px 10px",
+                  borderRadius: 10,
+                  background: "rgba(255,255,255,.04)",
+                }}
+              >
+                Admin
+              </a>
+            )}
+
 
           <a href={extUrl("/accounts/logout/")} style={{ color: COLORS.link, textDecoration: "none", fontSize: 13 }}>
             Logout
