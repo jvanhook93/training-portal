@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+const BACKEND = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
 const COLORS = {
   bg: "#0b0f19",
   surface: "rgba(15,23,42,.75)",
@@ -264,10 +266,7 @@ export default function App() {
       <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1>Training Portal</h1>
         <p>You’re not logged in.</p>
-        <a
-          href={extUrl(`/accounts/login/?next=${encodeURIComponent("https://training-portal-8pr.pages.dev/app/")}`)}
-          style={{ color: COLORS.link }}
-        >
+        <a href={`${BACKEND}/accounts/login/?next=/app`} style={{ color: COLORS.link }}>
           Go to Login
         </a>
       </div>
