@@ -1,7 +1,5 @@
-"""
-Django settings for config project.
-Django 5.x
-"""
+from dotenv import load_dotenv
+load_dotenv()
 
 from pathlib import Path
 import os

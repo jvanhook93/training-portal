@@ -4,8 +4,20 @@ from pathlib import Path
 from django.http import HttpResponse
 from django.http import FileResponse, Http404
 from django.http import JsonResponse
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import ensure_csrf_cookie
+
+@staff_member_required
+def media_check(request):
+    rel = request.GET.get("path", "")
+    abs_path = os.path.join(settings.MEDIA_ROOT, rel)
+    return JsonResponse({
+        "media_root": str(settings.MEDIA_ROOT),
+        "requested": rel,
+        "exists": os.path.exists(abs_path),
+        "abs_path": abs_path,
+    })
 
 @login_required(login_url="/accounts/login/")
 def react_app(request):

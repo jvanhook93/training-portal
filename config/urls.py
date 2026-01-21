@@ -91,6 +91,8 @@ urlpatterns = [
     # IMPORTANT: redirect /app → /app/
     path("app", lambda r: redirect("/app/", permanent=False)),
 
+    path("debug/media-check/", core_views.media_check),
+
     # React SPA (must be LAST)
     re_path(r"^app/.*$", react_app),
 ]
@@ -101,3 +103,6 @@ urlpatterns = [
 # -------------------
 if settings.DEBUG:
     urlpatterns += staticfiles_urlpatterns()
+
+
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
