@@ -12,6 +12,7 @@ from django.views.static import serve as static_serve
 from apps.core import views as core_views
 from accounts import views as accounts_views
 from apps.core.views import react_app
+from apps.core.media import media_serve
 
 # ✅ only used when we explicitly allow serving media from Django
 from django.views.static import serve as static_serve
@@ -57,6 +58,7 @@ urlpatterns = [
     # SPA
     path("app", lambda r: redirect("/app/", permanent=False)),
     re_path(r"^app/.*$", react_app),
+    re_path(r"^media/(?P<path>.*)$", media_serve),
 
     path("debug/media-list/", core_views.debug_media_list),
 ]
