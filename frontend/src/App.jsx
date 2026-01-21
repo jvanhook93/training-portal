@@ -20,6 +20,27 @@ const COLORS = {
   warn: "#fbbf24",
 };
 
+const certId = a.certificate_id; // coming from the API
+
+{a.status === "COMPLETED" && certId && (
+  <a
+    href={backendUrl(`/audits/certificates/${certId}/download/`)}
+    target="_blank"
+    rel="noreferrer"
+    style={{
+      border: `1px solid ${COLORS.border}`,
+      background: "transparent",
+      color: COLORS.link,
+      borderRadius: 12,
+      padding: "8px 12px",
+      textDecoration: "none",
+      fontSize: 13,
+    }}
+  >
+    Certificate
+  </a>
+)}
+
 function isLocalHost() {
   const h = window.location.hostname;
   return h === "localhost" || h === "127.0.0.1";
