@@ -35,6 +35,8 @@ frontend/dist/
 # Environment / secrets
 # =========================
 .env
+.env.*
+!.env.example
 *.log
 
 # =========================

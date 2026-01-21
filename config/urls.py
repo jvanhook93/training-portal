@@ -12,49 +12,92 @@ from django.conf.urls.static import static
 from apps.core import views as core_views
 from accounts import views as accounts_views
 from apps.core.views import react_app
+from django.contrib.staticfiles.urls import staticfiles_urlpatterns
 
 
+# -------------------
+# Root redirect
+# -------------------
 def root_redirect(request):
     if request.user.is_authenticated:
-        return redirect("/app")
-    return redirect("login")
+        return redirect("/app/")
+    return redirect("/accounts/login/")
 
 
+# -------------------
+# CSRF bootstrap endpoint (used by SPA)
+# -------------------
 @ensure_csrf_cookie
 @login_required
 def csrf(request):
     return JsonResponse({"ok": True})
 
 
+# -------------------
+# Logout handler (GET + POST safe)
+# -------------------
 def logout_then_login(request):
-    # allow GET logout (and POST too)
     logout(request)
     return redirect("/accounts/login/")
 
 
 urlpatterns = [
+    # Root
     path("", root_redirect),
 
+    # -------------------
+    # API
+    # -------------------
     path("api/me/", core_views.me, name="api-me"),
-    path("admin/", admin.site.urls),
-    path("audits/", include("audits.urls")),
-    path("", include("courses.urls")),
     path("api/csrf/", csrf, name="api-csrf"),
 
+    # -------------------
+    # Admin
+    # -------------------
+    path("admin/", admin.site.urls),
+
+    # -------------------
+    # App modules
+    # -------------------
+    path("audits/", include("audits.urls")),
+    path("", include("courses.urls")),
+
+    # -------------------
+    # Auth
+    # -------------------
     path("accounts/register/", accounts_views.register, name="register"),
 
     path(
         "accounts/login/",
-        auth_views.LoginView.as_view(template_name="accounts/login.html"),
+        auth_views.LoginView.as_view(
+            template_name="accounts/login.html"
+        ),
         name="login",
     ),
 
-    # ✅ THIS is the fix
-    path("accounts/logout/", logout_then_login, name="logout"),
+    path(
+        "accounts/logout/",
+        logout_then_login,
+        name="logout",
+    ),
 
+    # keep Django auth URLs (password reset, etc.)
     path("accounts/", include("django.contrib.auth.urls")),
 
-    re_path(r"^app(?:/.*)?$", react_app),
+    # -------------------
+    # SPA routing
+    # -------------------
+
+    # IMPORTANT: redirect /app → /app/
+    path("app", lambda r: redirect("/app/", permanent=False)),
+
+    # React SPA (must be LAST)
+    re_path(r"^app/.*$", react_app),
 ]
 
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# -------------------
+# Media (dev only)
+# -------------------
+if settings.DEBUG:
+    urlpatterns += staticfiles_urlpatterns()

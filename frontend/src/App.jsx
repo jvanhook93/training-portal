@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
-// ---- Backend base (must be absolute on Cloudflare Pages) ----
+
+/**
+ * ENV
+ * - On Cloudflare Pages: set VITE_API_BASE_URL = https://<your-railway-app>
+ * - Local dev: can be blank if you proxy or serve frontend from Django
+ */
 const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 const API_BASE = RAW_API_BASE.replace(/\/+$/, ""); // trim trailing slashes
 
@@ -15,28 +20,35 @@ const COLORS = {
   warn: "#fbbf24",
 };
 
+function isLocalHost() {
+  const h = window.location.hostname;
+  return h === "localhost" || h === "127.0.0.1";
+}
+
+function isDeployedFrontendHost() {
+  const h = window.location.hostname;
+  return h.endsWith("pages.dev") || h.endsWith("integranethealth.com");
+}
+
 function joinUrl(base, path) {
   if (!base) return path;
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${base}${p}`;
 }
 
-// API calls (cookie auth)
-async function apiFetch(path, init = {}) {
-  return fetch(joinUrl(API_BASE, path), {
-    credentials: "include",
-    ...init,
-  });
-}
-
-// For Django pages that must be opened on the backend origin
-function extUrl(path) {
+function apiUrl(path) {
+  // API endpoints live on Django backend
   return joinUrl(API_BASE, path);
 }
 
-// Always go to backend for admin/auth/training routes
 function backendUrl(path) {
+  // Django pages like /accounts/login/, /admin/, /training/...
   return joinUrl(API_BASE, path);
+}
+
+async function apiFetch(path, init = {}) {
+  // cookie session auth
+  return fetch(apiUrl(path), { credentials: "include", ...init });
 }
 
 function getCookie(name) {
@@ -121,7 +133,10 @@ export default function App() {
   // ---- boot auth ----
   useEffect(() => {
     (async () => {
-      if (!API_BASE) {
+      const requireApiBase = isDeployedFrontendHost() && !isLocalHost();
+
+      // Only complain about missing API base on deployed frontend (Pages/custom domain)
+      if (requireApiBase && !API_BASE) {
         setStatus("nobackend");
         return;
       }
@@ -143,6 +158,7 @@ export default function App() {
         setStatus("error");
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadCourses() {
@@ -201,7 +217,10 @@ export default function App() {
     try {
       setBusyId(a.id);
 
-      if (!API_BASE) throw new Error("Backend URL is not configured.");
+      // If you're deployed and missing backend, block it cleanly
+      if (isDeployedFrontendHost() && !API_BASE) {
+        throw new Error("Backend URL is not configured.");
+      }
 
       // Ensure CSRF cookie exists
       await apiFetch("/api/csrf/");
@@ -223,7 +242,7 @@ export default function App() {
       await loadAssignments();
 
       const cvId = a.course_version?.id || a.course_version_id || a.course_version;
-      if (cvId) window.location.href = extUrl(`/training/${cvId}/`);
+      if (cvId) window.location.href = backendUrl(`/training/${cvId}/`);
     } catch (e) {
       alert(e?.message || "Could not start assignment");
     } finally {
@@ -233,7 +252,7 @@ export default function App() {
 
   function resumeAssignment(a) {
     const cvId = a.course_version?.id || a.course_version_id || a.course_version;
-    if (cvId) window.location.href = extUrl(`/training/${cvId}/`);
+    if (cvId) window.location.href = backendUrl(`/training/${cvId}/`);
   }
 
   // ---- UI states ----
@@ -243,80 +262,80 @@ export default function App() {
 
   if (status === "nobackend") {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
+      <div
+        style={{
+          padding: 24,
+          fontFamily: "system-ui",
+          color: COLORS.text,
+          background: COLORS.bg,
+          minHeight: "100vh",
+        }}
+      >
         <h1>Training Portal</h1>
         <p style={{ color: COLORS.warn }}>
           Backend is not connected. This site is running as a static preview on Cloudflare Pages.
         </p>
         <p style={{ color: COLORS.muted, maxWidth: 700 }}>
-          Set <code>VITE_API_BASE_URL</code> in Cloudflare Pages to your Django backend URL
-          (example: <code>https://web-production-4c59f.up.railway.app</code>).
+          Set <code>VITE_API_BASE_URL</code> in Cloudflare Pages to your Django backend URL (example:{" "}
+          <code>https://web-production-4c59f.up.railway.app</code>).
         </p>
       </div>
     );
   }
 
   if (status === "unauth") {
-    if (!API_BASE) {
-      return (
-        <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
-          <h1>Training Portal</h1>
-          <p style={{ color: COLORS.warn }}>Backend URL is not configured.</p>
-        </div>
-      );
-    }
-
+    // Login needs to occur on backend origin to establish session cookies
     const loginUrl = backendUrl("/accounts/login/?next=/app");
-    const appUrl = backendUrl("/app");
-
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
+      <div
+        style={{
+          padding: 24,
+          fontFamily: "system-ui",
+          color: COLORS.text,
+          background: COLORS.bg,
+          minHeight: "100vh",
+        }}
+      >
         <h1 style={{ margin: "0 0 10px" }}>Training Portal</h1>
         <p style={{ margin: "0 0 16px", color: "#cbd5e1" }}>
           You’re not logged in. Login happens on the backend so your session cookie works.
         </p>
 
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <a
-            href={loginUrl}
-            style={{
-              color: "#0b0f19",
-              background: COLORS.link,
-              textDecoration: "none",
-              padding: "10px 14px",
-              borderRadius: 12,
-              fontWeight: 700,
-              display: "inline-block",
-            }}
-          >
-            Login on Railway
-          </a>
+        <a
+          href={loginUrl}
+          style={{
+            color: "#0b0f19",
+            background: COLORS.link,
+            textDecoration: "none",
+            padding: "10px 14px",
+            borderRadius: 12,
+            fontWeight: 700,
+            display: "inline-block",
+          }}
+        >
+          Login
+        </a>
 
-          <a
-            href={appUrl}
-            style={{
-              color: COLORS.link,
-              border: `1px solid ${COLORS.border}`,
-              textDecoration: "none",
-              padding: "10px 14px",
-              borderRadius: 12,
-              display: "inline-block",
-            }}
-          >
-            Open App
-          </a>
-        </div>
-
-        <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
-          Backend: <code>{API_BASE}</code>
-        </div>
+        {API_BASE && (
+          <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
+            Backend: <code>{API_BASE}</code>
+          </div>
+        )}
       </div>
     );
   }
 
   if (status === "error") {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
+      <div
+        style={{
+          padding: 24,
+          fontFamily: "system-ui",
+          color: COLORS.text,
+          background: COLORS.bg,
+          minHeight: "100vh",
+        }}
+      >
         <h1>Training Portal</h1>
         <p>Couldn’t load your account.</p>
         <p style={{ color: COLORS.muted }}>
@@ -326,6 +345,7 @@ export default function App() {
     );
   }
 
+  // ---- main app ----
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, color: COLORS.text, fontFamily: "system-ui" }}>
       {/* Top bar */}
@@ -394,8 +414,9 @@ export default function App() {
             </a>
           )}
 
-          {/* IMPORTANT: Django logout view is POST in your setup -> use a POST form */}
+          {/* Django logout is POST in many setups; include CSRF token */}
           <form method="POST" action={backendUrl("/accounts/logout/")} style={{ margin: 0 }}>
+            <input type="hidden" name="csrfmiddlewaretoken" value={getCookie("csrftoken") || ""} />
             <button
               type="submit"
               style={{

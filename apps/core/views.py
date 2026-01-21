@@ -1,5 +1,7 @@
 import os
 from django.conf import settings
+from pathlib import Path
+from django.http import HttpResponse
 from django.http import FileResponse, Http404
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
@@ -38,3 +40,13 @@ def me(request):
     "is_staff": request.user.is_staff,
     "is_superuser": request.user.is_superuser,
     })
+
+
+def react_app(request):
+    index_path = Path(settings.BASE_DIR) / "static" / "app" / "index.html"
+    if not index_path.exists():
+        return HttpResponse(
+            "React build not found. Run: cd frontend && npm run build",
+            status=500
+        )
+    return HttpResponse(index_path.read_text(encoding="utf-8"))
