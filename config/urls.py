@@ -8,7 +8,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 import os
-
+from django.views.static import serve as static_serve
 from apps.core import views as core_views
 from accounts import views as accounts_views
 from apps.core.views import react_app
@@ -57,10 +57,13 @@ urlpatterns = [
     # SPA
     path("app", lambda r: redirect("/app/", permanent=False)),
     re_path(r"^app/.*$", react_app),
+
+    path("debug/media-list/", core_views.debug_media_list),
 ]
 
 # ✅ Serve /media in dev OR when explicitly enabled (Railway demo)
 SERVE_MEDIA = os.getenv("SERVE_MEDIA", "0") == "1"
+
 if settings.DEBUG or SERVE_MEDIA:
     urlpatterns += [
         re_path(r"^media/(?P<path>.*)$", static_serve, {"document_root": settings.MEDIA_ROOT}),

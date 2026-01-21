@@ -62,3 +62,33 @@ def react_app(request):
             status=500
         )
     return HttpResponse(index_path.read_text(encoding="utf-8"))
+
+
+@staff_member_required
+def debug_media_list(request):
+    # List files under MEDIA_ROOT/training_videos
+    root = Path(settings.MEDIA_ROOT)
+    folder = root / "training_videos"
+
+    if not folder.exists():
+        return JsonResponse({
+            "media_root": str(root),
+            "folder": str(folder),
+            "exists": False,
+            "files": [],
+        })
+
+    files = []
+    for p in sorted(folder.glob("*")):
+        if p.is_file():
+            files.append({
+                "name": p.name,
+                "size": p.stat().st_size,
+            })
+
+    return JsonResponse({
+        "media_root": str(root),
+        "folder": str(folder),
+        "exists": True,
+        "files": files,
+    })
