@@ -7,12 +7,13 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
-from django.conf.urls.static import static
+
+# ✅ needed for serving media without DEBUG
+from django.views.static import serve
 
 from apps.core import views as core_views
 from accounts import views as accounts_views
 from apps.core.views import react_app
-from django.contrib.staticfiles.urls import staticfiles_urlpatterns
 
 
 # -------------------
@@ -66,43 +67,26 @@ urlpatterns = [
     # Auth
     # -------------------
     path("accounts/register/", accounts_views.register, name="register"),
-
     path(
         "accounts/login/",
-        auth_views.LoginView.as_view(
-            template_name="accounts/login.html"
-        ),
+        auth_views.LoginView.as_view(template_name="accounts/login.html"),
         name="login",
     ),
-
-    path(
-        "accounts/logout/",
-        logout_then_login,
-        name="logout",
-    ),
-
-    # keep Django auth URLs (password reset, etc.)
+    path("accounts/logout/", logout_then_login, name="logout"),
     path("accounts/", include("django.contrib.auth.urls")),
 
     # -------------------
     # SPA routing
     # -------------------
-
-    # IMPORTANT: redirect /app → /app/
+    # Redirect /app -> /app/
     path("app", lambda r: redirect("/app/", permanent=False)),
 
+    # Optional debug endpoint (your existing one)
     path("debug/media-check/", core_views.media_check),
 
-    # React SPA (must be LAST)
+    # ✅ Serve MEDIA on Railway (demo/dev). Do NOT use for real prod PHI/PII.
+    re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
+
+    # React SPA (keep LAST so it doesn't swallow /media/)
     re_path(r"^app/.*$", react_app),
 ]
-
-
-# -------------------
-# Media (dev only)
-# -------------------
-if settings.DEBUG:
-    urlpatterns += staticfiles_urlpatterns()
-
-
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
