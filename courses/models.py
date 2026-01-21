@@ -37,12 +37,15 @@ class CourseVersion(models.Model):
     video_file = models.FileField(upload_to="training_videos/", null=True, blank=True)
     pdf_file = models.FileField(upload_to="training_pdfs/", null=True, blank=True)
 
+    # Cache-bust tokens (helps prevent stale/corrupt cached partial video ranges)
+    video_cache_bust = models.CharField(max_length=16, blank=True, default="")
+    pdf_cache_bust = models.CharField(max_length=16, blank=True, default="")
+
     # This lets you 'retire' older versions without deleting history.
     is_published = models.BooleanField(default=False)
     published_at = models.DateTimeField(null=True, blank=True)
     retired_at = models.DateTimeField(null=True, blank=True)
 
-    # Optional: what score is required to pass
     pass_score = models.PositiveSmallIntegerField(default=80)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -56,6 +59,50 @@ class CourseVersion(models.Model):
 
     def __str__(self) -> str:
         return f"{self.course.code} {self.version}"
+
+    @property
+    def video_url(self):
+        """
+        Use this in templates instead of video_file.url:
+        <source src="{{ course_version.video_url }}" type="video/mp4" />
+        """
+        if not self.video_file:
+            return ""
+        url = self.video_file.url
+        if self.video_cache_bust:
+            joiner = "&" if "?" in url else "?"
+            url = f"{url}{joiner}v={self.video_cache_bust}"
+        return url
+
+    @property
+    def pdf_url(self):
+        if not self.pdf_file:
+            return ""
+        url = self.pdf_file.url
+        if self.pdf_cache_bust:
+            joiner = "&" if "?" in url else "?"
+            url = f"{url}{joiner}v={self.pdf_cache_bust}"
+        return url
+
+    def save(self, *args, **kwargs):
+        # Detect file changes so we only bump the token when the file changes
+        old = None
+        if self.pk:
+            old = CourseVersion.objects.filter(pk=self.pk).values(
+                "video_file", "pdf_file", "video_cache_bust", "pdf_cache_bust"
+            ).first()
+
+        # If new record, or video changed, bump token
+        if not self.pk or (old and old["video_file"] != (self.video_file.name if self.video_file else "")):
+            if self.video_file:
+                self.video_cache_bust = uuid.uuid4().hex[:10]
+
+        # If new record, or pdf changed, bump token
+        if not self.pk or (old and old["pdf_file"] != (self.pdf_file.name if self.pdf_file else "")):
+            if self.pdf_file:
+                self.pdf_cache_bust = uuid.uuid4().hex[:10]
+
+        super().save(*args, **kwargs)
 
 
 class VideoProgress(models.Model):
