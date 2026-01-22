@@ -3,18 +3,21 @@ from __future__ import annotations
 
 import csv
 from datetime import datetime
+from io import BytesIO
 from typing import Optional
 
 from django.contrib.admin.views.decorators import staff_member_required
-from django.contrib.auth import get_user_model
+from django.contrib.auth.decorators import login_required
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import render
-from django.utils.timezone import now
+from django.utils.timezone import localtime, now
+
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 
 from courses.models import Assignment, AssignmentCycle
-
-User = get_user_model()
 
 
 def _parse_date(s: str) -> Optional[datetime.date]:
@@ -26,13 +29,6 @@ def _parse_date(s: str) -> Optional[datetime.date]:
 
 @staff_member_required
 def audit_center(request):
-    """
-    Audit Center rows:
-    - One row per (user, assignment) and attaches the latest cycle (if any)
-    - If a user exists but has no assignments, they won’t show (by design).
-      If you want ALL users no matter what, tell me and I’ll tweak it.
-    """
-
     q = (request.GET.get("q") or "").strip()
     course = (request.GET.get("course") or "").strip()
     status = (request.GET.get("status") or "").strip()
@@ -43,11 +39,10 @@ def audit_center(request):
     start_d = _parse_date(start) if start else None
     end_d = _parse_date(end) if end else None
 
-    # Base query: assignments + course/version + assignee + cycles
     qs = (
         Assignment.objects
         .select_related("assignee", "course_version", "course_version__course")
-        .prefetch_related("cycles")  # ordered by Meta ordering on AssignmentCycle (-completed_at)
+        .prefetch_related("cycles")
         .order_by("assignee__username", "course_version__course__code", "-assigned_at")
     )
 
@@ -65,14 +60,11 @@ def audit_center(request):
             | Q(cycles__certificate_id__icontains=q)
         ).distinct()
 
-    # Build rows
     rows = []
     for a in qs:
-        # latest cycle (because ordering = ["-completed_at"])
         cycle = a.cycles.all().first() if hasattr(a, "cycles") else None
 
-        # If date filters are set, filter based on completed_at
-        if (start_d or end_d):
+        if start_d or end_d:
             if not cycle or not cycle.completed_at:
                 continue
             cd = cycle.completed_at.date()
@@ -81,7 +73,6 @@ def audit_center(request):
             if end_d and cd > end_d:
                 continue
 
-        # Status label logic based on expires_at
         status_label = "—"
         if cycle and cycle.completed_at and cycle.expires_at:
             days = (cycle.expires_at.date() - now().date()).days
@@ -92,15 +83,14 @@ def audit_center(request):
             else:
                 status_label = "COMPLIANT"
 
-        if status:
-            # status filter expects COMPLIANT / DUE SOON / EXPIRED
-            if status_label != status:
-                continue
+        if status and status_label != status:
+            continue
 
+        assignee = a.assignee
         user_display = (
-            (a.assignee.get_full_name() or "").strip()
-            or a.assignee.email
-            or a.assignee.username
+            (assignee.get_full_name() or "").strip()
+            or assignee.email
+            or assignee.username
         )
 
         course_display = f"{a.course_version.course.code} - {a.course_version.course.title}"
@@ -115,7 +105,6 @@ def audit_center(request):
             "status_label": status_label,
         })
 
-    # CSV export
     if export == "csv":
         resp = HttpResponse(content_type="text/csv")
         resp["Content-Disposition"] = 'attachment; filename="audit_export.csv"'
@@ -134,9 +123,11 @@ def audit_center(request):
             ])
         return resp
 
-    # Permission banner flag (your template expects this)
-    # You can later tighten this to "direct reports" logic if you want.
-    can_audit_all = request.user.is_staff or request.user.is_superuser or request.user.has_perm("courses.can_audit_certs")
+    can_audit_all = (
+        request.user.is_staff
+        or request.user.is_superuser
+        or request.user.has_perm("courses.can_audit_certs")
+    )
 
     return render(request, "audits/audit_center.html", {
         "rows": rows,
@@ -147,3 +138,87 @@ def audit_center(request):
         "end": end,
         "can_audit_all": can_audit_all,
     })
+
+
+@login_required
+def certificate_download(request, certificate_id: str):
+    """
+    Download a completion certificate by certificate_id.
+    This matches audits/urls.py: views.certificate_download
+    """
+    try:
+        cycle = (
+            AssignmentCycle.objects
+            .select_related(
+                "assignment",
+                "assignment__assignee",
+                "assignment__course_version",
+                "assignment__course_version__course",
+            )
+            .get(certificate_id=certificate_id)
+        )
+    except AssignmentCycle.DoesNotExist:
+        raise Http404("Certificate not found")
+
+    # Permission: owner OR staff/superuser OR audit permission
+    if not (
+        request.user.is_staff
+        or request.user.is_superuser
+        or request.user.has_perm("courses.can_audit_certs")
+        or cycle.assignment.assignee_id == request.user.id
+    ):
+        raise Http404("Not found")
+
+    if not cycle.completed_at:
+        raise Http404("Course not completed")
+
+    assignee = cycle.assignment.assignee
+    full_name = (assignee.get_full_name() or assignee.username or assignee.email or "User").strip()
+    course_title = cycle.assignment.course_version.course.title
+    version = cycle.assignment.course_version.version
+
+    completed_at = localtime(cycle.completed_at)
+    expires_at = localtime(cycle.expires_at) if cycle.expires_at else None
+
+    # Build PDF (ReportLab)
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=landscape(letter))
+    width, height = landscape(letter)
+
+    margin = 0.5 * inch
+    c.setLineWidth(3)
+    c.rect(margin, margin, width - 2 * margin, height - 2 * margin)
+
+    c.setFont("Helvetica-Bold", 34)
+    c.drawCentredString(width / 2, height - 1.35 * inch, "Certificate of Completion")
+
+    c.setFont("Helvetica", 16)
+    c.drawCentredString(width / 2, height - 1.7 * inch, "This certifies that")
+
+    c.setFont("Helvetica-Bold", 28)
+    c.drawCentredString(width / 2, height - 2.4 * inch, full_name)
+
+    c.setFont("Helvetica", 16)
+    c.drawCentredString(width / 2, height - 3.0 * inch, "has successfully completed")
+
+    c.setFont("Helvetica-Bold", 22)
+    c.drawCentredString(width / 2, height - 3.6 * inch, f"{course_title} (Version {version})")
+
+    completed_date = completed_at.date().strftime("%B %d, %Y")
+    expires_date = expires_at.date().strftime("%B %d, %Y") if expires_at else "—"
+
+    c.setFont("Helvetica", 14)
+    c.drawCentredString(width / 2, height - 4.3 * inch, f"Completed: {completed_date}    |    Expires: {expires_date}")
+
+    c.setFont("Helvetica", 12)
+    c.drawString(margin + 0.2 * inch, margin + 0.35 * inch, f"Certificate ID: {cycle.certificate_id}")
+
+    c.showPage()
+    c.save()
+
+    pdf = buffer.getvalue()
+    buffer.close()
+
+    resp = HttpResponse(pdf, content_type="application/pdf")
+    resp["Content-Disposition"] = f'attachment; filename="certificate-{cycle.certificate_id}.pdf"'
+    return resp
