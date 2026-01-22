@@ -1,12 +1,41 @@
 import { useEffect, useMemo, useState } from "react";
 
 /**
- * ENV
- * - Cloudflare Pages: set VITE_API_BASE_URL=https://web-production-4c59f.up.railway.app
- * - Local dev: VITE_API_BASE_URL can be blank (we'll use same-origin)
+ * API base rules (THIS FIXES your 127.0.0.1 problem):
+ * - If SPA is served from Railway backend origin => use same-origin relative URLs ("")
+ * - If SPA is served from Cloudflare Pages/custom domain => MUST use VITE_API_BASE_URL
  */
-const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
-const API_BASE = RAW_API_BASE.replace(/\/+$/, ""); // trim trailing slashes
+const ENV_API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+
+function isLocalHostHost(hostname) {
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+function isRailwayHost(hostname) {
+  return hostname.endsWith(".up.railway.app") || hostname.includes("railway.app");
+}
+
+function isDeployedFrontendHost(hostname) {
+  return hostname.endsWith("pages.dev") || hostname.endsWith("integranethealth.com");
+}
+
+function resolveApiBase() {
+  const hostname = window.location.hostname;
+
+  // If we're on Railway (Django is serving /app/), ALWAYS same-origin
+  if (isRailwayHost(hostname)) return "";
+
+  // If we're local dev and Django serves /app/, same-origin is also fine
+  if (isLocalHostHost(hostname)) return "";
+
+  // If we're on Cloudflare Pages / custom domain, we must have ENV_API_BASE
+  if (isDeployedFrontendHost(hostname)) return ENV_API_BASE || "";
+
+  // Fallback: prefer env if set, otherwise same-origin
+  return ENV_API_BASE || "";
+}
+
+const API_BASE = resolveApiBase();
 
 const COLORS = {
   bg: "#0b0f19",
@@ -19,18 +48,8 @@ const COLORS = {
   warn: "#fbbf24",
 };
 
-function isLocalHost() {
-  const h = window.location.hostname;
-  return h === "localhost" || h === "127.0.0.1";
-}
-
-function isDeployedFrontendHost() {
-  const h = window.location.hostname;
-  return h.endsWith("pages.dev") || h.endsWith("integranethealth.com");
-}
-
 function joinUrl(base, path) {
-  if (!base) return path; // same-origin
+  if (!base) return path;
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${base}${p}`;
 }
@@ -69,9 +88,7 @@ function Card({ title, children, onClick, clickable }) {
         userSelect: "none",
       }}
     >
-      <div style={{ fontSize: 14, color: "#cbd5e1", marginBottom: 10 }}>
-        {title}
-      </div>
+      <div style={{ fontSize: 14, color: "#cbd5e1", marginBottom: 10 }}>{title}</div>
       {children}
     </div>
   );
@@ -129,33 +146,24 @@ export default function App() {
   // ---- boot auth ----
   useEffect(() => {
     (async () => {
-      // On Pages/custom domain, backend MUST be set
-      const requireApiBase = isDeployedFrontendHost() && !isLocalHost();
-      if (requireApiBase && !API_BASE) {
-        setStatus("nobackend");
-        return;
-      }
+      const hostname = window.location.hostname;
 
-      // Hard safety: if you're NOT localhost, never allow localhost API
-      if (!isLocalHost() && (API_BASE.includes("127.0.0.1") || API_BASE.includes("localhost"))) {
+      // Only require API_BASE on Cloudflare Pages / custom domain.
+      if (isDeployedFrontendHost(hostname) && !API_BASE) {
         setStatus("nobackend");
         return;
       }
 
       try {
         const r = await apiFetch("/api/me/");
-
         if (r.status === 401) {
           setStatus("unauth");
           return;
         }
-
         if (!r.ok) {
-          // backend error (500, etc)
           setStatus("error");
           return;
         }
-
         const data = await r.json();
         setMe(data);
         setStatus("authed");
@@ -170,10 +178,6 @@ export default function App() {
     try {
       setCoursesStatus("loading");
       const r = await apiFetch("/api/courses/");
-      if (r.status === 401) {
-        setStatus("unauth");
-        return;
-      }
       if (!r.ok) throw new Error("bad response");
       const data = await r.json();
       setCourses(data.results || []);
@@ -188,10 +192,6 @@ export default function App() {
       setAssignError("");
       setAssignStatus("loading");
       const r = await apiFetch("/api/me/assignments/");
-      if (r.status === 401) {
-        setStatus("unauth");
-        return;
-      }
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
         throw new Error(`assignments load failed: ${r.status} ${txt}`);
@@ -242,11 +242,6 @@ export default function App() {
         },
       });
 
-      if (r.status === 401) {
-        setStatus("unauth");
-        return;
-      }
-
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
         throw new Error(`Start failed: ${r.status} ${txt}`);
@@ -268,14 +263,6 @@ export default function App() {
     if (cvId) window.location.href = backendUrl(`/training/${cvId}/`);
   }
 
-  function certificateUrl(a) {
-    // You MUST include certificate_id in your assignments API for this to work.
-    const certId = a.certificate_id || a.latest_certificate_id || null;
-    if (!certId) return null;
-    // you currently have audits route like: /audits/certificates/<id>/download/
-    return backendUrl(`/audits/certificates/${certId}/download/`);
-  }
-
   // ---- UI states ----
   if (status === "loading") {
     return <div style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</div>;
@@ -283,21 +270,14 @@ export default function App() {
 
   if (status === "nobackend") {
     return (
-      <div
-        style={{
-          padding: 24,
-          fontFamily: "system-ui",
-          color: COLORS.text,
-          background: COLORS.bg,
-          minHeight: "100vh",
-        }}
-      >
+      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1>Training Portal</h1>
         <p style={{ color: COLORS.warn }}>
-          Backend is not connected. Set <code>VITE_API_BASE_URL</code> to your Railway backend.
+          Backend is not connected. This site is running as a static preview on Cloudflare Pages.
         </p>
         <p style={{ color: COLORS.muted, maxWidth: 700 }}>
-          Example: <code>https://web-production-4c59f.up.railway.app</code>
+          Set <code>VITE_API_BASE_URL</code> in Cloudflare Pages to your Django backend URL (example:{" "}
+          <code>https://web-production-4c59f.up.railway.app</code>).
         </p>
       </div>
     );
@@ -307,15 +287,7 @@ export default function App() {
     // Login must occur on backend origin to establish session cookies
     const loginUrl = backendUrl("/accounts/login/?next=/app/");
     return (
-      <div
-        style={{
-          padding: 24,
-          fontFamily: "system-ui",
-          color: COLORS.text,
-          background: COLORS.bg,
-          minHeight: "100vh",
-        }}
-      >
+      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1 style={{ margin: "0 0 10px" }}>Training Portal</h1>
         <p style={{ margin: "0 0 16px", color: "#cbd5e1" }}>
           You’re not logged in.
@@ -336,36 +308,24 @@ export default function App() {
           Login
         </a>
 
-        {API_BASE && (
-          <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
-            Backend: <code>{API_BASE}</code>
-          </div>
-        )}
+        <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
+          API Base: <code>{API_BASE || "(same-origin)"}</code>
+        </div>
       </div>
     );
   }
 
   if (status === "error") {
     return (
-      <div
-        style={{
-          padding: 24,
-          fontFamily: "system-ui",
-          color: COLORS.text,
-          background: COLORS.bg,
-          minHeight: "100vh",
-        }}
-      >
+      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1>Training Portal</h1>
         <p>Couldn’t load your account.</p>
         <p style={{ color: COLORS.muted }}>
-          Check that <code>VITE_API_BASE_URL</code> is correct and CORS allows this origin.
+          If this is running on Cloudflare Pages, make sure <code>VITE_API_BASE_URL</code> is set and the backend is reachable.
         </p>
-        {API_BASE && (
-          <div style={{ marginTop: 10, color: COLORS.muted, fontSize: 12 }}>
-            Backend: <code>{API_BASE}</code>
-          </div>
-        )}
+        <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
+          API Base: <code>{API_BASE || "(same-origin)"}</code>
+        </div>
       </div>
     );
   }
@@ -491,7 +451,7 @@ export default function App() {
 
             <Card title="My Assignments">
               <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-                <Pill>View: {assignView === "all" ? "All" : assignView}</Pill>
+                <Pill>View: {assignView === "all" ? "All" : statusLabel(assignView.toUpperCase())}</Pill>
 
                 <button
                   onClick={() => setAssignView("all")}
@@ -539,9 +499,10 @@ export default function App() {
                     const due = a.due_at || null;
 
                     const canStart = a.status === "ASSIGNED";
-                    const canResume = a.status !== "ASSIGNED";
+                    const canResume = a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
 
-                    const certLink = a.status === "COMPLETED" ? certificateUrl(a) : null;
+                    // ✅ certificate button (expects backend to include certificate_id on the assignment record)
+                    const certId = a.certificate_id || a.latest_certificate_id || null;
 
                     return (
                       <div
@@ -606,9 +567,9 @@ export default function App() {
                             </button>
                           )}
 
-                          {certLink && (
+                          {a.status === "COMPLETED" && certId && (
                             <a
-                              href={certLink}
+                              href={backendUrl(`/audits/certificates/${certId}/download/`)}
                               target="_blank"
                               rel="noreferrer"
                               style={{

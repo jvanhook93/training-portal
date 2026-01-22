@@ -426,11 +426,18 @@ def my_assignments(request):
     Assignments for the current user.
     Includes certificate_id when completed.
     """
+    cycles_qs = (
+        AssignmentCycle.objects
+        .filter(completed_at__isnull=False)
+        .only("id", "assignment_id", "completed_at", "expires_at", "certificate_id")
+        .order_by("-completed_at")
+    )
+
     qs = (
         Assignment.objects
         .filter(assignee=request.user)
         .select_related("course_version", "course_version__course")
-        .prefetch_related("cycles")  # uses ordering = ["-completed_at"]
+        .prefetch_related(Prefetch("cycles", queryset=cycles_qs, to_attr="completed_cycles"))
         .order_by("-assigned_at")
     )
 
@@ -439,10 +446,8 @@ def my_assignments(request):
         cv = a.course_version
         c = cv.course
 
-        latest_cycle = a.cycles.first()  # newest completion first because of Meta.ordering
-        cert_id = None
-        if latest_cycle and latest_cycle.completed_at:
-            cert_id = latest_cycle.certificate_id
+        latest_cycle = a.completed_cycles[0] if getattr(a, "completed_cycles", []) else None
+        cert_id = latest_cycle.certificate_id if latest_cycle else None
 
         data.append({
             "id": a.id,
@@ -461,6 +466,7 @@ def my_assignments(request):
                 "pass_score": cv.pass_score,
             }
         })
+
     return JsonResponse({"results": data})
 
 @login_required
