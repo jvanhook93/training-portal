@@ -111,6 +111,14 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
+WHITENOISE_MANIFEST_STRICT = False
+
+if DEBUG:
+    WHITENOISE_USE_FINDERS = True
+    STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
+else:
+    STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
+    WHITENOISE_MANIFEST_STRICT = False
 
 # -----------------------------------------------------------------------------
 # Database
