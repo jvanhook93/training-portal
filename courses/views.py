@@ -424,35 +424,44 @@ def courses_list(request):
 def my_assignments(request):
     """
     Assignments for the current user.
-    Includes certificate_id when completed.
+    Safe against broken foreign keys (deleted course versions/courses).
     """
-    cycles_qs = (
-        AssignmentCycle.objects
-        .filter(completed_at__isnull=False)
-        .only("id", "assignment_id", "completed_at", "expires_at", "certificate_id")
-        .order_by("-completed_at")
-    )
-
     qs = (
         Assignment.objects
         .filter(assignee=request.user)
         .select_related("course_version", "course_version__course")
-        .prefetch_related(Prefetch("cycles", queryset=cycles_qs, to_attr="completed_cycles"))
+        .prefetch_related("cycles")  # ordering = ["-completed_at"]
         .order_by("-assigned_at")
     )
 
-    data = []
+    results = []
+    skipped = []
+
     for a in qs:
-        cv = a.course_version
+        cv = getattr(a, "course_version", None)
+
+        # ✅ Guard: if a.course_version was deleted or is null
+        if not cv or not getattr(cv, "course", None):
+            skipped.append({
+                "assignment_id": a.id,
+                "course_version_id": getattr(a, "course_version_id", None),
+                "reason": "Missing course_version or course (likely deleted record).",
+            })
+            continue
+
         c = cv.course
 
-        latest_cycle = a.completed_cycles[0] if getattr(a, "completed_cycles", []) else None
-        cert_id = latest_cycle.certificate_id if latest_cycle else None
+        # latest cycle (Meta.ordering makes first() newest, but may be null-completed)
+        latest_cycle = a.cycles.filter(completed_at__isnull=False).first()
 
-        data.append({
+        cert_id = None
+        if latest_cycle and latest_cycle.certificate_id:
+            cert_id = latest_cycle.certificate_id
+
+        results.append({
             "id": a.id,
             "status": a.status,
-            "assigned_at": a.assigned_at.isoformat(),
+            "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
             "due_at": a.due_at.isoformat() if a.due_at else None,
             "certificate_id": cert_id,
             "course": {
@@ -467,7 +476,13 @@ def my_assignments(request):
             }
         })
 
-    return JsonResponse({"results": data})
+    payload = {"results": results}
+
+    # Helpful for you while debugging
+    if skipped:
+        payload["skipped"] = skipped
+
+    return JsonResponse(payload)
 
 @login_required
 def start_assignment(request, assignment_id):
