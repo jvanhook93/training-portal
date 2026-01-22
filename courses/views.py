@@ -1,6 +1,7 @@
 import os
 from io import BytesIO
 import logging
+import traceback
 from dateutil.relativedelta import relativedelta
 
 from django.conf import settings
@@ -423,43 +424,22 @@ logger = logging.getLogger(__name__)
 @require_GET
 @login_required
 def my_assignments(request):
-    """
-    Assignments for the current user.
-    This endpoint should NEVER throw 500 — it will skip broken rows and report them.
-    """
-    qs = (
-        Assignment.objects
-        .filter(assignee=request.user)
-        .select_related("course_version", "course_version__course")
-        .prefetch_related("cycles")
-        .order_by("-assigned_at")
-    )
+    try:
+        qs = (
+            Assignment.objects
+            .filter(assignee=request.user)
+            .select_related("course_version", "course_version__course")
+            .prefetch_related("cycles")
+            .order_by("-assigned_at")
+        )
 
-    results = []
-    skipped = []
-
-    for a in qs:
-        try:
-            cv = getattr(a, "course_version", None)
-            if not cv:
-                skipped.append({
-                    "assignment_id": a.id,
-                    "course_version_id": getattr(a, "course_version_id", None),
-                    "reason": "course_version is missing/null",
-                })
-                continue
-
-            course = getattr(cv, "course", None)
-            if not course:
-                skipped.append({
-                    "assignment_id": a.id,
-                    "course_version_id": cv.id,
-                    "reason": "course is missing/null on course_version",
-                })
-                continue
+        results = []
+        for a in qs:
+            cv = a.course_version  # if this is None, it'll throw later
+            c = cv.course
 
             latest_cycle = a.cycles.filter(completed_at__isnull=False).first()
-            cert_id = latest_cycle.certificate_id if (latest_cycle and latest_cycle.certificate_id) else None
+            cert_id = latest_cycle.certificate_id if latest_cycle else None
 
             results.append({
                 "id": a.id,
@@ -468,31 +448,28 @@ def my_assignments(request):
                 "due_at": a.due_at.isoformat() if a.due_at else None,
                 "certificate_id": cert_id,
                 "course": {
-                    "id": course.id,
-                    "code": course.code,
-                    "title": course.title,
+                    "id": c.id,
+                    "code": c.code,
+                    "title": c.title,
                 },
                 "course_version": {
                     "id": cv.id,
                     "version": cv.version,
                     "pass_score": cv.pass_score,
-                }
+                },
             })
 
-        except Exception as e:
-            # ✅ swallow the crash, log it, and move on
-            logger.exception("my_assignments: skipping assignment_id=%s due to error", a.id)
-            skipped.append({
-                "assignment_id": a.id,
-                "course_version_id": getattr(a, "course_version_id", None),
-                "reason": f"exception: {type(e).__name__}: {e}",
-            })
+        return JsonResponse({"results": results})
 
-    payload = {"results": results}
-    if skipped:
-        payload["skipped"] = skipped
+    except Exception as e:
+        # ✅ DO NOT return HTML 500 to the SPA; return JSON with traceback
+        return JsonResponse({
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": traceback.format_exc().splitlines()[-40:],  # last ~40 lines
+        }, status=500)
+    
 
-    return JsonResponse(payload)
 @login_required
 def start_assignment(request, assignment_id):
     if request.method != "POST":
