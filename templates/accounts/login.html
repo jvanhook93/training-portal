@@ -1,74 +1,50 @@
+{% load static %}
 <!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Login</title>
-  <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#0b0f19; color:#eef2ff; }
-    .wrap { min-height: 100vh; display:flex; align-items:center; justify-content:center; padding: 24px; }
-    .card { width: 100%; max-width: 420px; background: rgba(15,23,42,.75); border:1px solid #334155; border-radius:16px; padding: 18px; }
-    h1 { margin: 0 0 12px; font-size: 24px; }
-    label { display:block; font-size: 13px; color:#cbd5e1; margin: 10px 0 6px; }
-   input {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
-  font-size: 14px;
-}
-
-input#id_username,
-input#id_password {
-  height: 38px;
-  padding: 8px 10px;
-  font-size: 14px;
-}
-    button { margin-top: 14px; width:100%; padding:10px 12px; border-radius:12px; border:1px solid #334155; background:#111827; color:#e2e8f0; cursor:pointer; }
-    a { color:#93c5fd; text-decoration:none; }
-    .muted { color:#94a3b8; font-size: 13px; margin-top: 10px; }
-    .msg { padding:10px 12px; border-radius:12px; background: rgba(255,255,255,.08); border: 1px solid rgba(148,163,184,.25); margin-bottom: 10px; }
-    .msg.error { border-color: rgba(239,68,68,.4); }
-  </style>
+  <title>IntegraNet Training Portal</title>
+  <link rel="stylesheet" href="{% static 'brand/brand.css' %}">
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Sign in</h1>
+  <div class="brand-wrap">
+    <div class="brand-card">
+
+      <div class="brand-top">
+        <img class="brand-logo" src="{% static 'brand/integra_logo.png' %}" alt="IntegraNet Health">
+        <div>
+          <div class="brand-title">IntegraNet Training Portal</div>
+          <div class="brand-sub">Sign in to continue</div>
+        </div>
+      </div>
 
       {% if form.errors %}
-        <div class="msg error">
-          Your username and password didn’t match. Please try again.
-        </div>
-      {% endif %}
-
-      {% if messages %}
-        {% for message in messages %}
-          <div class="msg {% if message.tags %}{{ message.tags }}{% endif %}">
-            {{ message }}
-          </div>
-        {% endfor %}
+        <div class="brand-error">Invalid username or password.</div>
       {% endif %}
 
       <form method="post">
         {% csrf_token %}
 
-        <label for="id_username">Username</label>
-        <input type="text" name="username" id="id_username" required>
+        <div class="brand-field">
+          <label for="id_username">Username</label>
+          {{ form.username }}
+        </div>
 
-        <label for="id_password">Password</label>
-        <input type="password" name="password" id="id_password" required>
+        <div class="brand-field">
+          <label for="id_password">Password</label>
+          {{ form.password }}
+        </div>
 
-        <button type="submit">Login</button>
+        <div class="brand-actions">
+          <button class="brand-btn primary" type="submit">Sign In</button>
+          <a href="{% url 'register' %}">Create account</a>
+        </div>
       </form>
 
-      <div class="muted">
-        Don’t have an account?
-        <a href="{% url 'register' %}">Register</a>
+      <div class="brand-hint">
+        Need access? Contact IT.
       </div>
 
-      <div class="muted">
-        Forgot password?
-        <a href="{% url 'password_reset' %}">Reset it</a>
-      </div>
     </div>
   </div>
 </body>

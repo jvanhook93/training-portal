@@ -1,46 +1,43 @@
+{% load static %}
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Create Account</title>
-  <style>
-    body { font-family: system-ui, Arial, sans-serif; background:#0b0f19; color:#eef2ff; }
-    .card { max-width:420px; margin:60px auto; padding:26px; border-radius:14px;
-            background:#0f172a; border:1px solid #334155; }
-    h2 { margin:0 0 14px; }
-    input { width:100%; padding:10px; margin-bottom:10px; border-radius:8px;
-            border:1px solid #334155; background:#020617; color:#e2e8f0; }
-    button { width:100%; padding:10px; border-radius:10px;
-             background:#111827; border:1px solid #334155; color:#e2e8f0; cursor:pointer; }
-    a { color:#93c5fd; text-decoration:none; }
-    .msg { margin-bottom:10px; padding:8px; border-radius:8px; background:rgba(255,255,255,.05); }
-  </style>
+  <meta charset="utf-8" />
+  <title>Create Account • IntegraNet Training Portal</title>
+  <link rel="stylesheet" href="{% static 'brand/brand.css' %}">
 </head>
 <body>
-  <div class="card">
-    <h2>Create Account</h2>
+  <div class="brand-wrap">
+    <div class="brand-card">
 
-    {% if messages %}
-      {% for message in messages %}
-        <div class="msg">{{ message }}</div>
-      {% endfor %}
-    {% endif %}
+      <div class="brand-top">
+        <img class="brand-logo" src="{% static 'brand/integra_logo.png' %}" alt="IntegraNet Health">
+        <div>
+          <div class="brand-title">Create Account</div>
+          <div class="brand-sub">Use your IntegraNet email if applicable</div>
+        </div>
+      </div>
 
-    <form method="post">
-      {% csrf_token %}
-      <input name="first_name" placeholder="First Name" required>
-      <input name="last_name" placeholder="Last Name" required>
-      <input name="email" type="email" placeholder="Email" required>
-      <input name="username" placeholder="Username (email recommended)" required>
-      <input name="password1" type="password" placeholder="Password" required>
-      <input name="password2" type="password" placeholder="Confirm Password" required>
-      <button type="submit">Register</button>
-    </form>
+      <form method="post">
+        {% csrf_token %}
 
-    <p style="margin-top:14px;">
-      Already have an account?
-      <a href="{% url 'login' %}">Login</a>
-    </p>
+        {% for field in form %}
+          <div class="brand-field">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}
+              <div class="brand-error">{{ field.errors|striptags }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+
+        <div class="brand-actions">
+          <button class="brand-btn primary" type="submit">Create Account</button>
+          <a href="{% url 'login' %}">Back to login</a>
+        </div>
+      </form>
+
+    </div>
   </div>
 </body>
 </html>
