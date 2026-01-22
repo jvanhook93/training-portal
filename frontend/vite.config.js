@@ -6,11 +6,15 @@ export default defineConfig(() => {
 
   return {
     plugins: [react()],
-    base: "/", // Cloudflare wants root-base paths
+    // IMPORTANT:
+    // - Cloudflare Pages wants "/" because it serves from site root
+    // - Django (Railway) serves built assets from /static/app/
+    base: isCloudflare ? "/" : "/static/app/",
     build: {
+      // Cloudflare expects dist/ in the frontend project directory
       outDir: isCloudflare ? "dist" : "../static/app",
       assetsDir: "assets",
-      emptyOutDir: isCloudflare, // only wipe dist on Cloudflare builds
+      emptyOutDir: true,
     },
   };
 });
