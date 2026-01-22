@@ -6,41 +6,78 @@ from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, HttpResponse, HttpResponseForbidden, JsonResponse
+from django.db.models import Prefetch
+from django.http import (
+    Http404,
+    HttpResponse,
+    HttpResponseForbidden,
+    JsonResponse,
+    HttpResponseNotAllowed,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.utils.timezone import now
+from django.utils.timezone import now, localtime
 from django.views.decorators.http import require_POST, require_GET
-from django.http import JsonResponse, HttpResponseNotAllowed
 
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
-from django.db.models import Prefetch
 
-from .models import Assignment, AssignmentCycle, CourseVersion, VideoProgress, Course, CourseVersion, Assignment
+from .models import (
+    Assignment,
+    AssignmentCycle,
+    Course,
+    CourseVersion,
+    VideoProgress,
+)
 
-
-# ----------------------------
+# -------------------------------------------------------------------
 # Helpers
-# ----------------------------
+# -------------------------------------------------------------------
 
 def _is_assigned_or_staff(user, cv: CourseVersion) -> bool:
     return user.is_staff or Assignment.objects.filter(assignee=user, course_version=cv).exists()
 
 
 def _get_quiz(cv: CourseVersion):
-    """
-    Returns the Quiz for a CourseVersion if configured, else None.
-    IMPORTANT: this assumes your Quiz model uses related_name="course_quiz"
-    on the OneToOneField to CourseVersion.
-    """
+    # Quiz is OneToOne with related_name="course_quiz"
     return getattr(cv, "course_quiz", None)
 
 
-# ----------------------------
+def _latest_completed_cycle_for_assignment(a: Assignment):
+    """
+    Returns latest completed AssignmentCycle for an assignment, or None.
+    Your AssignmentCycle.Meta.ordering = ["-completed_at"] so .first() is latest.
+    """
+    return a.cycles.filter(completed_at__isnull=False).first()
+
+
+def _cycle_payload(cycle: AssignmentCycle | None):
+    """
+    Standard payload used by /api/me/assignments/ and detail endpoint.
+    """
+    if not cycle:
+        return None
+
+    completed_at = localtime(cycle.completed_at) if cycle.completed_at else None
+    expires_at = localtime(cycle.expires_at) if cycle.expires_at else None
+
+    # IMPORTANT: this matches your audits/urls.py route
+    download_url = f"/audits/certificates/{cycle.certificate_id}/download/" if cycle.certificate_id else None
+
+    return {
+        "certificate_id": cycle.certificate_id,
+        "completed_at": completed_at.isoformat() if completed_at else None,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "score": cycle.score,
+        "passed": cycle.passed,
+        "certificate_download_url": download_url,
+    }
+
+
+# -------------------------------------------------------------------
 # Training player + progress
-# ----------------------------
+# -------------------------------------------------------------------
 
 @login_required
 def my_training(request, course_version_id: int):
@@ -102,18 +139,18 @@ def video_ping(request, course_version_id: int):
     return JsonResponse({"ok": True, "percent": vp.percent, "completed": vp.completed_at is not None})
 
 
-# ----------------------------
-# Dashboard
-# ----------------------------
+# -------------------------------------------------------------------
+# Dashboard (Django route; SPA handles UI)
+# -------------------------------------------------------------------
 
 @login_required
 def dashboard(request):
-    return redirect("/app")
+    return redirect("/app/")
 
 
-# ----------------------------
+# -------------------------------------------------------------------
 # Completion
-# ----------------------------
+# -------------------------------------------------------------------
 
 @require_POST
 @login_required
@@ -133,7 +170,7 @@ def complete_course_version(request, course_version_id: int):
         messages.error(request, f"Watch at least 90% of the video to complete (currently {pct}%).")
         return redirect("my_training", course_version_id=cv.id)
 
-    # Quiz gating (if configured + required)
+    # Quiz gating
     quiz = _get_quiz(cv)
     quiz_required = bool(quiz and quiz.is_required)
 
@@ -144,37 +181,38 @@ def complete_course_version(request, course_version_id: int):
         messages.error(request, "This training requires a quiz. Please pass the quiz before completion.")
         return redirect("take_quiz", course_version_id=cv.id)
 
-    # Create a new completion cycle (history preserved)
+    # Create completion cycle (history preserved)
     AssignmentCycle.objects.create(
         assignment=assignment,
         completed_at=now(),
         expires_at=now() + relativedelta(months=11),
         passed=True,
         score=quiz_score if quiz_required else None,
-        # certificate_id is auto-generated by your model.save()
+        # certificate_id auto-generated by AssignmentCycle.save()
     )
 
     assignment.status = Assignment.Status.COMPLETED
-    assignment.save()
+    assignment.save(update_fields=["status"])
 
-    # Optional: clear quiz session gates once completed (keeps demo tidy)
+    # Clear quiz session state
     request.session.pop(f"quiz_score_cv_{cv.id}", None)
     request.session.pop(f"quiz_passed_cv_{cv.id}", None)
 
-    messages.success(request, "Training marked complete. Certificate generated.")
-    return redirect("dashboard")
+    messages.success(request, "Training marked complete.")
+    return redirect("/app/")
 
 
-# ----------------------------
-# Certificates
-# ----------------------------
+# -------------------------------------------------------------------
+# Certificates (optional legacy endpoint)
+# NOTE: Your main download should be /audits/certificates/<id>/download/
+# Keep this only if you want a second route in courses.
+# -------------------------------------------------------------------
 
 @login_required
 def download_certificate(request, certificate_id: str):
     """
     Generates a PDF certificate for the given certificate_id.
-    Access:
-      - owner, staff, managers (direct reports), or users with courses.can_audit_certs
+    Access: owner OR staff OR manager OR courses.can_audit_certs
     """
     try:
         cycle = (
@@ -190,10 +228,13 @@ def download_certificate(request, certificate_id: str):
     except AssignmentCycle.DoesNotExist:
         raise Http404("Certificate not found")
 
+    if not cycle.completed_at:
+        raise Http404("Certificate not available")
+
     assignee = cycle.assignment.assignee
 
     is_owner = assignee.id == request.user.id
-    is_staff = request.user.is_staff
+    is_staff = request.user.is_staff or request.user.is_superuser
     has_audit_perm = request.user.has_perm("courses.can_audit_certs")
 
     is_manager = False
@@ -214,7 +255,6 @@ def download_certificate(request, certificate_id: str):
     c.setLineWidth(3)
     c.rect(margin, margin, width - 2 * margin, height - 2 * margin)
 
-    # Logo
     logo_path = os.path.join(settings.BASE_DIR, "media", "branding", "integra_logo.png")
     if os.path.exists(logo_path):
         c.drawImage(
@@ -246,8 +286,8 @@ def download_certificate(request, certificate_id: str):
     c.setFont("Helvetica-Bold", 22)
     c.drawCentredString(width / 2, height - 3.6 * inch, f"{course_title} (Version {version})")
 
-    completed_date = cycle.completed_at.date().strftime("%B %d, %Y")
-    expires_date = cycle.expires_at.date().strftime("%B %d, %Y")
+    completed_date = localtime(cycle.completed_at).date().strftime("%B %d, %Y")
+    expires_date = localtime(cycle.expires_at).date().strftime("%B %d, %Y") if cycle.expires_at else "N/A"
 
     c.setFont("Helvetica", 14)
     c.drawCentredString(width / 2, height - 4.3 * inch, f"Completed: {completed_date}    |    Expires: {expires_date}")
@@ -278,9 +318,9 @@ def download_certificate(request, certificate_id: str):
     return resp
 
 
-# ----------------------------
+# -------------------------------------------------------------------
 # Quiz
-# ----------------------------
+# -------------------------------------------------------------------
 
 @login_required
 def take_quiz(request, course_version_id: int):
@@ -342,12 +382,13 @@ def submit_quiz(request, course_version_id: int):
     return redirect("take_quiz", course_version_id=cv.id)
 
 
+# -------------------------------------------------------------------
+# API endpoints consumed by SPA
+# -------------------------------------------------------------------
+
 @require_GET
 @login_required
 def courses_list(request):
-    """
-    All active courses + their published version (if any).
-    """
     published_versions = CourseVersion.objects.filter(is_published=True).order_by("-published_at")
 
     courses = (
@@ -374,6 +415,7 @@ def courses_list(request):
                 "quiz_required": getattr(getattr(pv, "course_quiz", None), "is_required", False),
             }
         })
+
     return JsonResponse({"results": data})
 
 
@@ -382,11 +424,13 @@ def courses_list(request):
 def my_assignments(request):
     """
     Assignments for the current user.
+    Adds cert info so frontend can render a "Certificate" button on completed trainings.
     """
     qs = (
         Assignment.objects
         .filter(assignee=request.user)
         .select_related("course_version", "course_version__course")
+        .prefetch_related("cycles")
         .order_by("-assigned_at")
     )
 
@@ -394,6 +438,9 @@ def my_assignments(request):
     for a in qs:
         cv = a.course_version
         c = cv.course
+
+        latest_cycle = _latest_completed_cycle_for_assignment(a)
+
         data.append({
             "id": a.id,
             "status": a.status,
@@ -408,8 +455,11 @@ def my_assignments(request):
                 "id": cv.id,
                 "version": cv.version,
                 "pass_score": cv.pass_score,
-            }
+            },
+            # ✅ THIS is what your React dashboard uses to show the button
+            "latest_cycle": _cycle_payload(latest_cycle),
         })
+
     return JsonResponse({"results": data})
 
 
@@ -420,28 +470,26 @@ def start_assignment(request, assignment_id):
 
     a = get_object_or_404(Assignment, id=assignment_id, assignee=request.user)
 
-    # Only move ASSIGNED -> IN_PROGRESS (don’t mess with COMPLETED)
     if a.status == Assignment.Status.ASSIGNED:
         a.status = Assignment.Status.IN_PROGRESS
         a.save(update_fields=["status"])
 
-    return JsonResponse({
-        "ok": True,
-        "id": a.id,
-        "status": a.status,
-    })
+    return JsonResponse({"ok": True, "id": a.id, "status": a.status})
 
 
 @login_required
 def my_assignment_detail(request, assignment_id):
     a = get_object_or_404(
-        Assignment.objects.select_related("course_version", "course_version__course"),
+        Assignment.objects
+        .select_related("course_version", "course_version__course")
+        .prefetch_related("cycles"),
         id=assignment_id,
         assignee=request.user,
     )
 
     cv = a.course_version
     c = cv.course
+    latest_cycle = _latest_completed_cycle_for_assignment(a)
 
     return JsonResponse({
         "id": a.id,
@@ -462,4 +510,5 @@ def my_assignment_detail(request, assignment_id):
             "pdf_url": cv.pdf_file.url if cv.pdf_file else None,
             "is_published": cv.is_published,
         },
+        "latest_cycle": _cycle_payload(latest_cycle),
     })

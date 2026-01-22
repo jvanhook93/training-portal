@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 
-
 /**
  * ENV
  * - On Cloudflare Pages: set VITE_API_BASE_URL = https://<your-railway-app>
@@ -19,27 +18,6 @@ const COLORS = {
   link: "#93c5fd",
   warn: "#fbbf24",
 };
-
-const certId = a.certificate_id; // coming from the API
-
-{a.status === "COMPLETED" && certId && (
-  <a
-    href={backendUrl(`/audits/certificates/${certId}/download/`)}
-    target="_blank"
-    rel="noreferrer"
-    style={{
-      border: `1px solid ${COLORS.border}`,
-      background: "transparent",
-      color: COLORS.link,
-      borderRadius: 12,
-      padding: "8px 12px",
-      textDecoration: "none",
-      fontSize: 13,
-    }}
-  >
-    Certificate
-  </a>
-)}
 
 function isLocalHost() {
   const h = window.location.hostname;
@@ -474,12 +452,16 @@ export default function App() {
               </Card>
 
               <Card title="In Progress" clickable onClick={() => setAssignView("inprogress")}>
-                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.inProgress}</div>
+                <div style={{ fontSize: 28, fontWeight: 700 }}>
+                  {assignStatus === "loading" ? "…" : counts.inProgress}
+                </div>
                 <div style={{ color: COLORS.muted, fontSize: 13 }}>Started</div>
               </Card>
 
               <Card title="Completed" clickable onClick={() => setAssignView("completed")}>
-                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.completed}</div>
+                <div style={{ fontSize: 28, fontWeight: 700 }}>
+                  {assignStatus === "loading" ? "…" : counts.completed}
+                </div>
                 <div style={{ color: COLORS.muted, fontSize: 13 }}>Finished</div>
               </Card>
             </div>
@@ -537,6 +519,14 @@ export default function App() {
 
                     const canStart = a.status === "ASSIGNED";
                     const canResume = a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
+
+                    // ✅ certificate id can come as:
+                    // - a.latest_cycle.certificate_id (preferred)
+                    // - a.certificate_id (fallback)
+                    const certId = a?.latest_cycle?.certificate_id || a?.certificate_id || null;
+                    const certUrl =
+                      a?.latest_cycle?.certificate_download_url ||
+                      (certId ? `/audits/certificates/${certId}/download/` : null);
 
                     return (
                       <div
@@ -599,6 +589,26 @@ export default function App() {
                             >
                               {a.status === "COMPLETED" ? "View" : "Resume"}
                             </button>
+                          )}
+
+                          {/* ✅ Only show once completed AND cert exists */}
+                          {a.status === "COMPLETED" && certUrl && (
+                            <a
+                              href={backendUrl(certUrl)}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{
+                                border: `1px solid ${COLORS.border}`,
+                                background: "transparent",
+                                color: COLORS.link,
+                                borderRadius: 12,
+                                padding: "8px 12px",
+                                textDecoration: "none",
+                                fontSize: 13,
+                              }}
+                            >
+                              Certificate
+                            </a>
                           )}
                         </div>
                       </div>
