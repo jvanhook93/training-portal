@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 
 /**
  * ENV
- * - Cloudflare Pages: set VITE_API_BASE_URL = https://<your-railway-app>
- * - Local dev: set VITE_API_BASE_URL=http://127.0.0.1:8000 (or use proxy)
+ * - Cloudflare Pages: set VITE_API_BASE_URL=https://web-production-4c59f.up.railway.app
+ * - Local dev: VITE_API_BASE_URL can be blank (we'll use same-origin)
  */
 const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 const API_BASE = RAW_API_BASE.replace(/\/+$/, ""); // trim trailing slashes
@@ -30,7 +30,7 @@ function isDeployedFrontendHost() {
 }
 
 function joinUrl(base, path) {
-  if (!base) return path;
+  if (!base) return path; // same-origin
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${base}${p}`;
 }
@@ -129,23 +129,33 @@ export default function App() {
   // ---- boot auth ----
   useEffect(() => {
     (async () => {
+      // On Pages/custom domain, backend MUST be set
       const requireApiBase = isDeployedFrontendHost() && !isLocalHost();
-
       if (requireApiBase && !API_BASE) {
+        setStatus("nobackend");
+        return;
+      }
+
+      // Hard safety: if you're NOT localhost, never allow localhost API
+      if (!isLocalHost() && (API_BASE.includes("127.0.0.1") || API_BASE.includes("localhost"))) {
         setStatus("nobackend");
         return;
       }
 
       try {
         const r = await apiFetch("/api/me/");
+
         if (r.status === 401) {
           setStatus("unauth");
           return;
         }
+
         if (!r.ok) {
+          // backend error (500, etc)
           setStatus("error");
           return;
         }
+
         const data = await r.json();
         setMe(data);
         setStatus("authed");
@@ -160,6 +170,10 @@ export default function App() {
     try {
       setCoursesStatus("loading");
       const r = await apiFetch("/api/courses/");
+      if (r.status === 401) {
+        setStatus("unauth");
+        return;
+      }
       if (!r.ok) throw new Error("bad response");
       const data = await r.json();
       setCourses(data.results || []);
@@ -174,6 +188,10 @@ export default function App() {
       setAssignError("");
       setAssignStatus("loading");
       const r = await apiFetch("/api/me/assignments/");
+      if (r.status === 401) {
+        setStatus("unauth");
+        return;
+      }
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
         throw new Error(`assignments load failed: ${r.status} ${txt}`);
@@ -207,14 +225,12 @@ export default function App() {
     return assignments;
   }, [assignments, assignView]);
 
+  // ---- actions ----
   async function startAssignment(a) {
     try {
       setBusyId(a.id);
 
-      if (isDeployedFrontendHost() && !API_BASE) {
-        throw new Error("Backend URL is not configured.");
-      }
-
+      // Ensure CSRF cookie exists
       await apiFetch("/api/csrf/");
       const csrf = getCookie("csrftoken");
 
@@ -225,6 +241,11 @@ export default function App() {
           "X-Requested-With": "XMLHttpRequest",
         },
       });
+
+      if (r.status === 401) {
+        setStatus("unauth");
+        return;
+      }
 
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
@@ -247,32 +268,59 @@ export default function App() {
     if (cvId) window.location.href = backendUrl(`/training/${cvId}/`);
   }
 
+  function certificateUrl(a) {
+    // You MUST include certificate_id in your assignments API for this to work.
+    const certId = a.certificate_id || a.latest_certificate_id || null;
+    if (!certId) return null;
+    // you currently have audits route like: /audits/certificates/<id>/download/
+    return backendUrl(`/audits/certificates/${certId}/download/`);
+  }
+
   // ---- UI states ----
-  if (status === "loading") return <div style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</div>;
+  if (status === "loading") {
+    return <div style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</div>;
+  }
 
   if (status === "nobackend") {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
+      <div
+        style={{
+          padding: 24,
+          fontFamily: "system-ui",
+          color: COLORS.text,
+          background: COLORS.bg,
+          minHeight: "100vh",
+        }}
+      >
         <h1>Training Portal</h1>
         <p style={{ color: COLORS.warn }}>
-          Backend is not connected. This site is running as a static preview on Cloudflare Pages.
+          Backend is not connected. Set <code>VITE_API_BASE_URL</code> to your Railway backend.
         </p>
         <p style={{ color: COLORS.muted, maxWidth: 700 }}>
-          Set <code>VITE_API_BASE_URL</code> in Cloudflare Pages to your Django backend URL (example:{" "}
-          <code>https://web-production-4c59f.up.railway.app</code>).
+          Example: <code>https://web-production-4c59f.up.railway.app</code>
         </p>
       </div>
     );
   }
 
   if (status === "unauth") {
-    const loginUrl = backendUrl("/accounts/login/?next=/app");
+    // Login must occur on backend origin to establish session cookies
+    const loginUrl = backendUrl("/accounts/login/?next=/app/");
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
+      <div
+        style={{
+          padding: 24,
+          fontFamily: "system-ui",
+          color: COLORS.text,
+          background: COLORS.bg,
+          minHeight: "100vh",
+        }}
+      >
         <h1 style={{ margin: "0 0 10px" }}>Training Portal</h1>
         <p style={{ margin: "0 0 16px", color: "#cbd5e1" }}>
-          You’re not logged in. Login happens on the backend so your session cookie works.
+          You’re not logged in.
         </p>
+
         <a
           href={loginUrl}
           style={{
@@ -287,6 +335,7 @@ export default function App() {
         >
           Login
         </a>
+
         {API_BASE && (
           <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
             Backend: <code>{API_BASE}</code>
@@ -298,12 +347,25 @@ export default function App() {
 
   if (status === "error") {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
+      <div
+        style={{
+          padding: 24,
+          fontFamily: "system-ui",
+          color: COLORS.text,
+          background: COLORS.bg,
+          minHeight: "100vh",
+        }}
+      >
         <h1>Training Portal</h1>
         <p>Couldn’t load your account.</p>
         <p style={{ color: COLORS.muted }}>
-          If this is running on Cloudflare Pages, make sure <code>VITE_API_BASE_URL</code> is set and the backend is reachable.
+          Check that <code>VITE_API_BASE_URL</code> is correct and CORS allows this origin.
         </p>
+        {API_BASE && (
+          <div style={{ marginTop: 10, color: COLORS.muted, fontSize: 12 }}>
+            Backend: <code>{API_BASE}</code>
+          </div>
+        )}
       </div>
     );
   }
@@ -429,7 +491,7 @@ export default function App() {
 
             <Card title="My Assignments">
               <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-                <Pill>View: {assignView === "all" ? "All" : statusLabel(assignView.toUpperCase())}</Pill>
+                <Pill>View: {assignView === "all" ? "All" : assignView}</Pill>
 
                 <button
                   onClick={() => setAssignView("all")}
@@ -477,9 +539,9 @@ export default function App() {
                     const due = a.due_at || null;
 
                     const canStart = a.status === "ASSIGNED";
-                    const canResume = a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
+                    const canResume = a.status !== "ASSIGNED";
 
-                    const certId = a.certificate_id || null;
+                    const certLink = a.status === "COMPLETED" ? certificateUrl(a) : null;
 
                     return (
                       <div
@@ -544,9 +606,9 @@ export default function App() {
                             </button>
                           )}
 
-                          {a.status === "COMPLETED" && certId && (
+                          {certLink && (
                             <a
-                              href={backendUrl(`/audits/certificates/${certId}/download/`)}
+                              href={certLink}
                               target="_blank"
                               rel="noreferrer"
                               style={{
