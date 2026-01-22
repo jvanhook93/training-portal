@@ -1,7 +1,7 @@
 # audits/views.py
 from io import BytesIO
 
-from django.contrib.auth.decorators import login_required, permission_required
+from django.contrib.auth.decorators import login_required, permission_required, staff_member_required
 from django.http import Http404, HttpResponse
 from django.shortcuts import render
 from django.utils.timezone import localtime
@@ -12,6 +12,9 @@ from reportlab.pdfgen import canvas
 
 from courses.models import AssignmentCycle
 
+@staff_member_required
+def audit_center(request):
+    return HttpResponse("Audit Center (placeholder)", content_type="text/plain")
 
 @login_required
 def audit_center(request):
