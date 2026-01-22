@@ -1,19 +1,19 @@
-# config/urls.py
 import os
 
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import logout
 from django.contrib.auth import views as auth_views
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.urls import include, path, re_path
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.contrib.auth.decorators import login_required
 from django.views.static import serve as static_serve
 
-from apps.core import views as core_views
 from accounts import views as accounts_views
+from apps.core import views as core_views
+from apps.core.views import react_app
 
 
 def root_redirect(request):
@@ -56,15 +56,13 @@ urlpatterns = [
 
     # Debug
     path("debug/media-list/", core_views.debug_media_list),
-    path("debug/media-check/", core_views.media_check),
 
-    # SPA
+    # SPA (must be last among “real” routes)
     path("app", lambda r: redirect("/app/", permanent=False)),
-    re_path(r"^app/.*$", core_views.react_app),
+    re_path(r"^app/.*$", react_app),
 ]
 
-# ---- MEDIA ----
-# Serve media in local dev, OR when explicitly enabled for Railway demo.
+# Serve /media in dev OR when explicitly enabled (Railway)
 SERVE_MEDIA = os.getenv("SERVE_MEDIA", "0") == "1"
 if settings.DEBUG or SERVE_MEDIA:
     urlpatterns += [
