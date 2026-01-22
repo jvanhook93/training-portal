@@ -9,7 +9,7 @@
     input, select { padding:8px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; }
     button { padding:8px 12px; border-radius:10px; border:1px solid #334155; background:#111827; color:#e2e8f0; cursor:pointer; }
     table { width:100%; border-collapse: collapse; margin-top:14px; }
-    th, td { border-bottom: 1px solid #1f2937; padding: 10px; text-align:left; font-size: 14px; }
+    th, td { border-bottom: 1px solid #1f2937; padding: 10px; text-align:left; font-size: 14px; vertical-align: top; }
     th { color:#cbd5e1; font-weight:600; }
     .pill { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid #334155; font-size:12px; }
     .ok { color:#86efac; border-color:#14532d; }
@@ -65,7 +65,6 @@
       <button type="submit" name="export" value="csv">Export CSV</button>
 
       <a href="/admin">Dashboard</a>
-
     </div>
   </form>
 
@@ -87,20 +86,42 @@
           <td>{{ r.user_display }}</td>
           <td>{{ r.course_display }}</td>
           <td>{{ r.version_display }}</td>
-          <td>{{ r.cycle.completed_at|date:"Y-m-d" }}</td>
-          <td>{{ r.cycle.expires_at|date:"Y-m-d" }}</td>
+
+          <td>
+            {% if r.cycle and r.cycle.completed_at %}
+              {{ r.cycle.completed_at|date:"Y-m-d" }}
+            {% else %}
+              <span class="muted">Not completed</span>
+            {% endif %}
+          </td>
+
+          <td>
+            {% if r.cycle and r.cycle.expires_at %}
+              {{ r.cycle.expires_at|date:"Y-m-d" }}
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+
           <td>
             {% if r.status_label == "COMPLIANT" %}
               <span class="pill ok">COMPLIANT</span>
             {% elif r.status_label == "DUE SOON" %}
               <span class="pill soon">DUE SOON</span>
-            {% else %}
+            {% elif r.status_label == "EXPIRED" %}
               <span class="pill bad">EXPIRED</span>
+            {% else %}
+              <span class="pill muted">—</span>
             {% endif %}
           </td>
+
           <td>
-            <a href="{% url 'download_certificate' r.cycle.certificate_id %}">Download PDF</a>
-            <div class="muted" style="font-size:12px;">{{ r.cycle.certificate_id }}</div>
+            {% if r.cycle and r.cycle.certificate_id %}
+              <a href="{% url 'certificate-download' r.cycle.certificate_id %}">Download PDF</a>
+              <div class="muted" style="font-size:12px;">{{ r.cycle.certificate_id }}</div>
+            {% else %}
+              <span class="muted">No certificate yet</span>
+            {% endif %}
           </td>
         </tr>
       {% empty %}
