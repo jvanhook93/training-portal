@@ -21,9 +21,15 @@ staticfiles/
 # Ignore all static files by default
 static/*
 
-# BUT allow the React app build for /app
+# Allow the React app build for /app
 !static/app/
 !static/app/**
+
+# Allow branding assets + css
+!static/brand/
+!static/brand/**
+!static/branding/
+!static/branding/**
 
 # =========================
 # Frontend (React/Vite)
