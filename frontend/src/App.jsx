@@ -7,6 +7,11 @@ import { useEffect, useMemo, useState } from "react";
  *
  * Also: when logged OUT, Django may 302 redirect /api/me/ -> /accounts/login/...
  * In that case fetch() returns HTML, not JSON. We treat that as "unauth".
+ *
+ * IMPORTANT LOGOUT FIX:
+ * - If frontend is on Cloudflare Pages, you CANNOT POST /accounts/logout/ with CSRF
+ *   because cookies + csrftoken are on Railway domain.
+ * - So logout MUST be a top-level navigation to the backend (GET).
  */
 const ENV_API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
@@ -67,13 +72,6 @@ function backendUrl(path) {
 
 async function apiFetch(path, init = {}) {
   return fetch(apiUrl(path), { credentials: "include", ...init });
-}
-
-function getCookie(name) {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return parts.pop().split(";").shift();
-  return null;
 }
 
 function Card({ title, children, onClick, clickable }) {
@@ -158,10 +156,9 @@ export default function App() {
       }
 
       try {
-        // IMPORTANT: force JSON preference; detect HTML (login page) as unauth
+        // Force JSON preference; detect HTML (login page) as unauth
         const r = await apiFetch("/api/me/", { headers: { Accept: "application/json" } });
 
-        // If backend returns true 401, that's ideal
         if (r.status === 401) {
           setStatus("unauth");
           return;
@@ -206,13 +203,15 @@ export default function App() {
     try {
       setAssignError("");
       setAssignStatus("loading");
+
       const r = await apiFetch("/api/me/assignments/", { headers: { Accept: "application/json" } });
 
-      // If we got bounced to login, treat as unauth
       if (r.status === 401) {
         setStatus("unauth");
         return;
       }
+
+      // If we got bounced to login (HTML), treat as unauth
       const ct = (r.headers.get("content-type") || "").toLowerCase();
       if (!ct.includes("application/json")) {
         setStatus("unauth");
@@ -258,13 +257,16 @@ export default function App() {
     try {
       setBusyId(a.id);
 
-      // Ensure CSRF cookie exists
+      // Ensure CSRF cookie exists (this works when SPA is served same-origin from Railway;
+      // and also works if your CSRF endpoint sets cookie properly on backend origin).
       await apiFetch("/api/csrf/");
-      const csrf = getCookie("csrftoken");
+      const csrf = null; // we intentionally do NOT rely on document.cookie cross-domain
 
       const r = await apiFetch(`/api/assignments/${a.id}/start/`, {
         method: "POST",
         headers: {
+          // Note: when app is served from Pages, CSRF for cross-site POST is tricky.
+          // If this endpoint ever 403s from Pages, we can switch it to token auth or same-site flow.
           "X-CSRFToken": csrf || "",
           "X-Requested-With": "XMLHttpRequest",
         },
@@ -356,6 +358,9 @@ export default function App() {
     );
   }
 
+  // Logout URL (GET + redirect back to current page)
+  const logoutUrl = backendUrl(`/accounts/logout/?next=${encodeURIComponent(window.location.href)}`);
+
   // ---- main app ----
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, color: COLORS.text, fontFamily: "system-ui" }}>
@@ -425,46 +430,21 @@ export default function App() {
             </a>
           )}
 
-          <button
-              onClick={async () => {
-                try {
-                  // Ensure CSRF cookie exists for this origin
-                  await apiFetch("/api/csrf/");
-                  const csrf = getCookie("csrftoken");
-
-                  const r = await apiFetch("/accounts/logout/", {
-                    method: "POST",
-                    headers: {
-                      "X-CSRFToken": csrf || "",
-                      "X-Requested-With": "XMLHttpRequest",
-                      "Content-Type": "application/x-www-form-urlencoded",
-                    },
-                    body: "",
-                  });
-
-                  if (!r.ok) {
-                    const txt = await r.text().catch(() => "");
-                    throw new Error(`Logout failed: ${r.status} ${txt}`);
-                  }
-
-                  // After logout, bounce to backend login (so session cookie is cleared for sure)
-                  window.location.href = backendUrl("/accounts/login/");
-                } catch (e) {
-                  alert(e?.message || "Logout failed");
-                }
-              }}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: COLORS.link,
-                cursor: "pointer",
-                fontSize: 13,
-                padding: 0,
-              }}
-            >
-              Logout
-            </button>
-
+          {/* ✅ FIXED LOGOUT: top-level navigation (no fetch, no CSRF issues across domains) */}
+          <a
+            href={logoutUrl}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: COLORS.link,
+              cursor: "pointer",
+              fontSize: 13,
+              padding: 0,
+              textDecoration: "none",
+            }}
+          >
+            Logout
+          </a>
         </div>
       </div>
 
@@ -551,7 +531,6 @@ export default function App() {
                     const canStart = a.status === "ASSIGNED";
                     const canResume = a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
 
-                    // certificate id present on completed assignments
                     const certId = a.certificate_id || null;
 
                     return (
