@@ -1,3 +1,4 @@
+# config/settings.py
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -9,13 +10,23 @@ import os
 # -----------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _csv_env(name: str):
+    """Read comma-separated env var into a clean list (no blanks)."""
+    return [v.strip() for v in os.getenv(name, "").split(",") if v.strip()]
+
+
+def _env_bool(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default) in ("1", "true", "True", "yes", "YES", "on", "ON")
+
+
 # -----------------------------------------------------------------------------
 # Core security / environment
 # -----------------------------------------------------------------------------
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-change-me")
 
-# Use DJANGO_DEBUG=1 on local and (temporarily) on Railway if debugging
-DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
+# Use DJANGO_DEBUG=1 locally (and temporarily on Railway when debugging)
+DEBUG = _env_bool("DJANGO_DEBUG", "1")
 
 # Hosts
 ALLOWED_HOSTS = [
@@ -27,17 +38,14 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
-# Add your custom domain if you use it (safe to include even if not live yet)
-# Example: training.integranethealth.com
-extra_hosts = os.getenv("EXTRA_ALLOWED_HOSTS", "")
-if extra_hosts:
-    for h in extra_hosts.split(","):
-        h = h.strip()
-        if h and h not in ALLOWED_HOSTS:
-            ALLOWED_HOSTS.append(h)
+# Optional extra hosts (custom domains etc.)
+for h in _csv_env("EXTRA_ALLOWED_HOSTS"):
+    if h not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(h)
 
-# If behind a proxy (Railway), this makes request.is_secure() work correctly
+# Railway / proxies
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
 
 # Frontend URL used for redirects (Cloudflare Pages in prod, Vite in dev)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
@@ -74,7 +82,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # CORS MUST be first (before CommonMiddleware)
     "corsheaders.middleware.CorsMiddleware",
+
     "django.middleware.security.SecurityMiddleware",
 
     # WhiteNoise must be right after SecurityMiddleware
@@ -100,25 +110,14 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-
                 # IMPORTANT:
-                # If you don't have apps/core/context_processors.py with frontend_url(),
-                # this WILL crash admin with a 500. Keep it removed unless it's real.
-                # "apps.core.context_processors.frontend_url",
+                # Do NOT add apps.core.context_processors.frontend_url unless it exists.
             ],
         },
     },
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
-WHITENOISE_MANIFEST_STRICT = False
-
-if DEBUG:
-    WHITENOISE_USE_FINDERS = True
-    STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
-else:
-    STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
-    WHITENOISE_MANIFEST_STRICT = False
 
 # -----------------------------------------------------------------------------
 # Database
@@ -127,9 +126,6 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
     import dj_database_url
-
-    # Railway Postgres: ssl_require should be True
-    # Local: you won't usually have DATABASE_URL set
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
@@ -180,12 +176,16 @@ STATICFILES_FINDERS = [
     "django.contrib.staticfiles.finders.AppDirectoriesFinder",
 ]
 
-# WhiteNoise behavior
+# WhiteNoise
+# - In DEBUG we allow finder-based serving (no collectstatic needed)
+# - In prod we use hashed manifest files
 if DEBUG:
     WHITENOISE_USE_FINDERS = True
     STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
 else:
     STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    # If you ever deploy with missing hashed files, this prevents hard-crash
+    WHITENOISE_MANIFEST_STRICT = False
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BASE_DIR / "media")))
@@ -193,33 +193,32 @@ MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BASE_DIR / "media")))
 # -----------------------------------------------------------------------------
 # CORS / CSRF
 # -----------------------------------------------------------------------------
-# Recommended Railway vars:
+# Railway vars you should set:
 # CORS_ALLOWED_ORIGINS=https://training-portal-8pr.pages.dev
 # CSRF_TRUSTED_ORIGINS=https://training-portal-8pr.pages.dev,https://web-production-4c59f.up.railway.app
-CORS_ALLOWED_ORIGINS = [
-    o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
-]
+CORS_ALLOWED_ORIGINS = _csv_env("CORS_ALLOWED_ORIGINS")
+CSRF_TRUSTED_ORIGINS = _csv_env("CSRF_TRUSTED_ORIGINS")
 
-# Local dev convenience: allow Vite dev server
+# Local dev convenience
 if DEBUG:
-    if "http://localhost:5173" not in CORS_ALLOWED_ORIGINS:
-        CORS_ALLOWED_ORIGINS.append("http://localhost:5173")
-    if "http://127.0.0.1:5173" not in CORS_ALLOWED_ORIGINS:
-        CORS_ALLOWED_ORIGINS.append("http://127.0.0.1:5173")
+    for o in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+        if o not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(o)
 
-CORS_ALLOW_CREDENTIALS = True
-
-CSRF_TRUSTED_ORIGINS = [
-    o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
-]
-
-# Local dev trusted origins convenience
-if DEBUG:
-    for o in ["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:8000", "http://localhost:8000"]:
+    for o in ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8000", "http://127.0.0.1:8000"]:
         if o not in CSRF_TRUSTED_ORIGINS:
             CSRF_TRUSTED_ORIGINS.append(o)
 
+# OPTIONAL but very useful: allow all Pages.dev preview subdomains
+# (won't override the explicit list above; it's an additional allow mechanism)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.pages\.dev$",
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
 # Cookies / SameSite
+# If frontend and backend are on different domains in prod, you need SameSite=None; Secure=True
 if DEBUG:
     CSRF_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SAMESITE = "Lax"
