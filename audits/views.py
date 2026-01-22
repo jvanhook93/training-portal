@@ -23,7 +23,6 @@ User = get_user_model()
 # -----------------------------------------------------------------------------
 # AUDIT CENTER
 # -----------------------------------------------------------------------------
-@staff_member_required
 def audit_center(request):
     """
     Simple audit center:
