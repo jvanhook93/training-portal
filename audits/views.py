@@ -1,11 +1,12 @@
 from datetime import datetime
 import csv
-
+from io import BytesIO
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden,FileResponse, Http404
 from django.shortcuts import render
 from django.utils.timezone import now
+from django.utils.timezone import localtime
 
 from courses.models import AssignmentCycle
 
@@ -193,3 +194,16 @@ def audit_center(request):
             "result_count": len(rows),
         },
     )
+
+
+
+def build_certificate_pdf(cycle: AssignmentCycle) -> BytesIO:
+    """
+    Generates a PDF in memory for the given completion cycle.
+    Replace the content/layout with your existing certificate design logic.
+    """
+    buf = BytesIO()
+
+    # If you already have certificate generation logic elsewhere, call it here.
+    # Example using reportlab:
+    from reportlab.pdfgen import canvas
