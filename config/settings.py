@@ -176,6 +176,8 @@ STATICFILES_FINDERS = [
     "django.contrib.staticfiles.finders.AppDirectoriesFinder",
 ]
 
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
 # WhiteNoise
 # - In DEBUG we allow finder-based serving (no collectstatic needed)
 # - In prod we use hashed manifest files
