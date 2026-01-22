@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 
 /**
  * ENV
- * - On Cloudflare Pages: set VITE_API_BASE_URL = https://<your-railway-app>
- * - Local dev: can be blank if you proxy or serve frontend from Django
+ * - Cloudflare Pages: set VITE_API_BASE_URL = https://<your-railway-app>
+ * - Local dev: set VITE_API_BASE_URL=http://127.0.0.1:8000 (or use proxy)
  */
 const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 const API_BASE = RAW_API_BASE.replace(/\/+$/, ""); // trim trailing slashes
@@ -36,17 +36,14 @@ function joinUrl(base, path) {
 }
 
 function apiUrl(path) {
-  // API endpoints live on Django backend
   return joinUrl(API_BASE, path);
 }
 
 function backendUrl(path) {
-  // Django pages like /accounts/login/, /admin/, /training/...
   return joinUrl(API_BASE, path);
 }
 
 async function apiFetch(path, init = {}) {
-  // cookie session auth
   return fetch(apiUrl(path), { credentials: "include", ...init });
 }
 
@@ -134,7 +131,6 @@ export default function App() {
     (async () => {
       const requireApiBase = isDeployedFrontendHost() && !isLocalHost();
 
-      // Only complain about missing API base on deployed frontend (Pages/custom domain)
       if (requireApiBase && !API_BASE) {
         setStatus("nobackend");
         return;
@@ -211,17 +207,14 @@ export default function App() {
     return assignments;
   }, [assignments, assignView]);
 
-  // ---- actions ----
   async function startAssignment(a) {
     try {
       setBusyId(a.id);
 
-      // If you're deployed and missing backend, block it cleanly
       if (isDeployedFrontendHost() && !API_BASE) {
         throw new Error("Backend URL is not configured.");
       }
 
-      // Ensure CSRF cookie exists
       await apiFetch("/api/csrf/");
       const csrf = getCookie("csrftoken");
 
@@ -255,21 +248,11 @@ export default function App() {
   }
 
   // ---- UI states ----
-  if (status === "loading") {
-    return <div style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</div>;
-  }
+  if (status === "loading") return <div style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</div>;
 
   if (status === "nobackend") {
     return (
-      <div
-        style={{
-          padding: 24,
-          fontFamily: "system-ui",
-          color: COLORS.text,
-          background: COLORS.bg,
-          minHeight: "100vh",
-        }}
-      >
+      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1>Training Portal</h1>
         <p style={{ color: COLORS.warn }}>
           Backend is not connected. This site is running as a static preview on Cloudflare Pages.
@@ -283,23 +266,13 @@ export default function App() {
   }
 
   if (status === "unauth") {
-    // Login needs to occur on backend origin to establish session cookies
     const loginUrl = backendUrl("/accounts/login/?next=/app");
     return (
-      <div
-        style={{
-          padding: 24,
-          fontFamily: "system-ui",
-          color: COLORS.text,
-          background: COLORS.bg,
-          minHeight: "100vh",
-        }}
-      >
+      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1 style={{ margin: "0 0 10px" }}>Training Portal</h1>
         <p style={{ margin: "0 0 16px", color: "#cbd5e1" }}>
           You’re not logged in. Login happens on the backend so your session cookie works.
         </p>
-
         <a
           href={loginUrl}
           style={{
@@ -314,7 +287,6 @@ export default function App() {
         >
           Login
         </a>
-
         {API_BASE && (
           <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
             Backend: <code>{API_BASE}</code>
@@ -326,15 +298,7 @@ export default function App() {
 
   if (status === "error") {
     return (
-      <div
-        style={{
-          padding: 24,
-          fontFamily: "system-ui",
-          color: COLORS.text,
-          background: COLORS.bg,
-          minHeight: "100vh",
-        }}
-      >
+      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1>Training Portal</h1>
         <p>Couldn’t load your account.</p>
         <p style={{ color: COLORS.muted }}>
@@ -413,7 +377,6 @@ export default function App() {
             </a>
           )}
 
-          {/* Django logout is POST in many setups; include CSRF token */}
           <form method="POST" action={backendUrl("/accounts/logout/")} style={{ margin: 0 }}>
             <input type="hidden" name="csrfmiddlewaretoken" value={getCookie("csrftoken") || ""} />
             <button
@@ -452,16 +415,12 @@ export default function App() {
               </Card>
 
               <Card title="In Progress" clickable onClick={() => setAssignView("inprogress")}>
-                <div style={{ fontSize: 28, fontWeight: 700 }}>
-                  {assignStatus === "loading" ? "…" : counts.inProgress}
-                </div>
+                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.inProgress}</div>
                 <div style={{ color: COLORS.muted, fontSize: 13 }}>Started</div>
               </Card>
 
               <Card title="Completed" clickable onClick={() => setAssignView("completed")}>
-                <div style={{ fontSize: 28, fontWeight: 700 }}>
-                  {assignStatus === "loading" ? "…" : counts.completed}
-                </div>
+                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.completed}</div>
                 <div style={{ color: COLORS.muted, fontSize: 13 }}>Finished</div>
               </Card>
             </div>
@@ -520,13 +479,7 @@ export default function App() {
                     const canStart = a.status === "ASSIGNED";
                     const canResume = a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
 
-                    // ✅ certificate id can come as:
-                    // - a.latest_cycle.certificate_id (preferred)
-                    // - a.certificate_id (fallback)
-                    const certId = a?.latest_cycle?.certificate_id || a?.certificate_id || null;
-                    const certUrl =
-                      a?.latest_cycle?.certificate_download_url ||
-                      (certId ? `/audits/certificates/${certId}/download/` : null);
+                    const certId = a.certificate_id || null;
 
                     return (
                       <div
@@ -591,10 +544,9 @@ export default function App() {
                             </button>
                           )}
 
-                          {/* ✅ Only show once completed AND cert exists */}
-                          {a.status === "COMPLETED" && certUrl && (
+                          {a.status === "COMPLETED" && certId && (
                             <a
-                              href={backendUrl(certUrl)}
+                              href={backendUrl(`/audits/certificates/${certId}/download/`)}
                               target="_blank"
                               rel="noreferrer"
                               style={{
