@@ -5,6 +5,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>IntegraNet Training Portal</title>
+
+  {# Optional external brand stylesheet (safe if it fails) #}
+  <link rel="stylesheet" href="{% static 'brand/brand.css' %}">
+
   <style>
     :root{
       --bg:#0b0f19;
@@ -47,13 +51,14 @@
       height:44px;
       width:auto;
       display:block;
-      filter: brightness(1.25) contrast(1.05);
+      filter: brightness(1.18) contrast(1.05);
     }
     h1{
       font-size:18px;
       margin:0;
       letter-spacing:.2px;
       font-weight:800;
+      color: var(--text);
     }
     .sub{
       margin-top:4px;
@@ -105,12 +110,6 @@
       color: var(--warn);
       font-size:13px;
     }
-    .help{
-      margin-top:14px;
-      color:var(--muted);
-      font-size:12px;
-      line-height:1.4;
-    }
     .footer{
       margin-top:14px;
       display:flex;
@@ -123,11 +122,12 @@
     }
   </style>
 </head>
+
 <body>
   <div class="card">
-    {% load static %}
-        <link rel="stylesheet" href="{% static 'brand/brand.css' %}">
-        <img src="{% static 'branding/integra_logo.png' %}" alt="IntegraNet Health">
+    <div class="brand">
+      <img class="logo" src="{% static 'branding/integra_logo.png' %}" alt="IntegraNet Health">
+      <div>
         <h1>IntegraNet Training Portal</h1>
         <div class="sub">Sign in to continue</div>
       </div>
@@ -136,11 +136,11 @@
     <form method="post" action="">
       {% csrf_token %}
 
-      <label for="id_username">Username</label>
-      <input id="id_username" name="username" autocomplete="username" required />
+      <label for="{{ form.username.id_for_label }}">Username</label>
+      {{ form.username }}
 
-      <label for="id_password">Password</label>
-      <input id="id_password" name="password" type="password" autocomplete="current-password" required />
+      <label for="{{ form.password.id_for_label }}">Password</label>
+      {{ form.password }}
 
       {% if form.errors %}
         <div class="error">Invalid username or password.</div>
@@ -156,8 +156,14 @@
 
     <div class="footer">
       <div>Need access? Contact IT.</div>
-      <div style="opacity:.9;">© {{ now|date:"Y" }} IntegraNet Health</div>
+      <div style="opacity:.9;">© {% now "Y" %} IntegraNet Health</div>
     </div>
   </div>
+
+  <script>
+    // Nice UX: put cursor in username box
+    const u = document.querySelector('input[name="username"]');
+    if (u) u.focus();
+  </script>
 </body>
 </html>
