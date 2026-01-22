@@ -93,3 +93,21 @@ def react_app(request):
     resp = HttpResponse(html, content_type="text/html")
     resp["Cache-Control"] = "no-store"
     return resp
+
+
+def me(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {"detail": "Authentication credentials were not provided."},
+            status=401
+        )
+
+    u = request.user
+    return JsonResponse({
+        "id": u.id,
+        "username": u.username,
+        "first_name": u.first_name,
+        "last_name": u.last_name,
+        "is_staff": u.is_staff,
+        "is_superuser": u.is_superuser,
+    })

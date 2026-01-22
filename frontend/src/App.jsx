@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 /**
- * API base rules (THIS FIXES your 127.0.0.1 problem):
+ * API base rules (FIXES the 127.0.0.1 problem + logged-out redirect issue):
  * - If SPA is served from Railway backend origin => use same-origin relative URLs ("")
  * - If SPA is served from Cloudflare Pages/custom domain => MUST use VITE_API_BASE_URL
+ *
+ * Also: when logged OUT, Django may 302 redirect /api/me/ -> /accounts/login/...
+ * In that case fetch() returns HTML, not JSON. We treat that as "unauth".
  */
 const ENV_API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
@@ -22,16 +25,16 @@ function isDeployedFrontendHost(hostname) {
 function resolveApiBase() {
   const hostname = window.location.hostname;
 
-  // If we're on Railway (Django is serving /app/), ALWAYS same-origin
+  // If we're on Railway (Django serving /app/), ALWAYS same-origin
   if (isRailwayHost(hostname)) return "";
 
-  // If we're local dev and Django serves /app/, same-origin is also fine
+  // Local dev hitting Django directly is same-origin
   if (isLocalHostHost(hostname)) return "";
 
-  // If we're on Cloudflare Pages / custom domain, we must have ENV_API_BASE
+  // Cloudflare Pages / custom domain must use env var
   if (isDeployedFrontendHost(hostname)) return ENV_API_BASE || "";
 
-  // Fallback: prefer env if set, otherwise same-origin
+  // Fallback
   return ENV_API_BASE || "";
 }
 
@@ -148,22 +151,34 @@ export default function App() {
     (async () => {
       const hostname = window.location.hostname;
 
-      // Only require API_BASE on Cloudflare Pages / custom domain.
+      // Only require API_BASE on Cloudflare Pages/custom domain.
       if (isDeployedFrontendHost(hostname) && !API_BASE) {
         setStatus("nobackend");
         return;
       }
 
       try {
-        const r = await apiFetch("/api/me/");
+        // IMPORTANT: force JSON preference; detect HTML (login page) as unauth
+        const r = await apiFetch("/api/me/", { headers: { Accept: "application/json" } });
+
+        // If backend returns true 401, that's ideal
         if (r.status === 401) {
           setStatus("unauth");
           return;
         }
+
+        // If Django redirects to login, fetch follows and we get HTML
+        const ct = (r.headers.get("content-type") || "").toLowerCase();
+        if (!ct.includes("application/json")) {
+          setStatus("unauth");
+          return;
+        }
+
         if (!r.ok) {
           setStatus("error");
           return;
         }
+
         const data = await r.json();
         setMe(data);
         setStatus("authed");
@@ -177,7 +192,7 @@ export default function App() {
   async function loadCourses() {
     try {
       setCoursesStatus("loading");
-      const r = await apiFetch("/api/courses/");
+      const r = await apiFetch("/api/courses/", { headers: { Accept: "application/json" } });
       if (!r.ok) throw new Error("bad response");
       const data = await r.json();
       setCourses(data.results || []);
@@ -191,11 +206,24 @@ export default function App() {
     try {
       setAssignError("");
       setAssignStatus("loading");
-      const r = await apiFetch("/api/me/assignments/");
+      const r = await apiFetch("/api/me/assignments/", { headers: { Accept: "application/json" } });
+
+      // If we got bounced to login, treat as unauth
+      if (r.status === 401) {
+        setStatus("unauth");
+        return;
+      }
+      const ct = (r.headers.get("content-type") || "").toLowerCase();
+      if (!ct.includes("application/json")) {
+        setStatus("unauth");
+        return;
+      }
+
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
         throw new Error(`assignments load failed: ${r.status} ${txt}`);
       }
+
       const data = await r.json();
       setAssignments(data.results || []);
       setAssignStatus("ready");
@@ -289,9 +317,7 @@ export default function App() {
     return (
       <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
         <h1 style={{ margin: "0 0 10px" }}>Training Portal</h1>
-        <p style={{ margin: "0 0 16px", color: "#cbd5e1" }}>
-          You’re not logged in.
-        </p>
+        <p style={{ margin: "0 0 16px", color: "#cbd5e1" }}>You’re not logged in.</p>
 
         <a
           href={loginUrl}
@@ -501,8 +527,8 @@ export default function App() {
                     const canStart = a.status === "ASSIGNED";
                     const canResume = a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
 
-                    // ✅ certificate button (expects backend to include certificate_id on the assignment record)
-                    const certId = a.certificate_id || a.latest_certificate_id || null;
+                    // certificate id present on completed assignments
+                    const certId = a.certificate_id || null;
 
                     return (
                       <div
