@@ -1,12 +1,60 @@
+# apps/core/views.py
 import os
-from django.conf import settings
 from pathlib import Path
-from django.http import HttpResponse
-from django.http import FileResponse, Http404
-from django.http import JsonResponse
+
+from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.http import Http404, HttpResponse, JsonResponse
+from django.utils.encoding import smart_str
+from django.contrib.staticfiles import finders
+
+
+@login_required
+def me(request):
+    u = request.user
+    return JsonResponse({
+        "id": u.id,
+        "username": u.username,
+        "first_name": u.first_name,
+        "last_name": u.last_name,
+        "is_staff": u.is_staff,
+        "is_superuser": u.is_superuser,
+    })
+
+
+@login_required(login_url="/accounts/login/")
+def react_app(request):
+    """
+    Serve the built React SPA index.html for /app/*.
+
+    Uses staticfiles finders so it works with:
+    - DEBUG + STATICFILES_DIRS
+    - production + collectstatic/whitenoise
+    """
+    index_path = finders.find("app/index.html")
+
+    if not index_path or not os.path.exists(index_path):
+        raise Http404("React build not found. Expected static/app/index.html")
+
+    with open(index_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    # SAFETY NET: if index.html has /assets/... (wrong in Django),
+    # rewrite to /static/app/assets/...
+    html = html.replace('src="/assets/', 'src="/static/app/assets/')
+    html = html.replace("src='/assets/", "src='/static/app/assets/")
+    html = html.replace('href="/assets/', 'href="/static/app/assets/')
+    html = html.replace("href='/assets/", "href='/static/app/assets/")
+
+    # Optional: patch vite svg if referenced from root
+    html = html.replace('href="/vite.svg"', 'href="/static/app/vite.svg"')
+    html = html.replace('src="/vite.svg"', 'src="/static/app/vite.svg"')
+
+    resp = HttpResponse(html, content_type="text/html; charset=utf-8")
+    resp["Cache-Control"] = "no-store"
+    return resp
+
 
 @staff_member_required
 def media_check(request):
@@ -19,54 +67,9 @@ def media_check(request):
         "abs_path": abs_path,
     })
 
-@login_required(login_url="/accounts/login/")
-def react_app(request):
-    index_path = os.path.join(settings.BASE_DIR, "static", "app", "index.html")
-    if not os.path.exists(index_path):
-        raise Http404("React build not found. Build frontend and copy to static/app.")
-    return FileResponse(open(index_path, "rb"))
-
-
-@login_required(login_url="/accounts/login/")
-@ensure_csrf_cookie
-def react_app(request):
-    index_path = os.path.join(settings.BASE_DIR, "static", "app", "index.html")
-    if not os.path.exists(index_path):
-        raise Http404("React build not found. Build frontend and copy to static/app.")
-    return FileResponse(open(index_path, "rb"))
-
-
-def me(request):
-    if not request.user.is_authenticated:
-        return JsonResponse(
-            {"detail": "Authentication credentials were not provided."},
-            status=401
-        )
-
-    u = request.user
-    return JsonResponse({
-    "id": request.user.id,
-    "username": request.user.username,
-    "first_name": request.user.first_name,
-    "last_name": request.user.last_name,
-    "is_staff": request.user.is_staff,
-    "is_superuser": request.user.is_superuser,
-    })
-
-
-def react_app(request):
-    index_path = Path(settings.BASE_DIR) / "static" / "app" / "index.html"
-    if not index_path.exists():
-        return HttpResponse(
-            "React build not found. Run: cd frontend && npm run build",
-            status=500
-        )
-    return HttpResponse(index_path.read_text(encoding="utf-8"))
-
 
 @staff_member_required
 def debug_media_list(request):
-    # List files under MEDIA_ROOT/training_videos
     root = Path(settings.MEDIA_ROOT)
     folder = root / "training_videos"
 

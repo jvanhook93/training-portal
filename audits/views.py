@@ -1,62 +1,78 @@
-from django.contrib.auth.decorators import login_required
+# audits/views.py
+from io import BytesIO
+
+from django.contrib.auth.decorators import login_required, permission_required
 from django.http import Http404, HttpResponse
+from django.shortcuts import render
 from django.utils.timezone import localtime
+
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 
 from courses.models import AssignmentCycle
 
 
-# ------------------------------------------------------------------
-# Certificate renderer hook
-# ------------------------------------------------------------------
-def render_certificate_pdf(
-    *,
-    full_name: str,
-    course_title: str,
-    completed_at,
-    expires_at,
-    certificate_id: str,
-) -> bytes:
+@login_required
+def audit_center(request):
     """
-    TEMPORARY certificate generator.
-
-    Replace the body of this function with your real certificate
-    PDF generator (ReportLab, WeasyPrint, etc).
-
-    MUST return raw PDF bytes.
+    Minimal page so audits/urls.py can import it.
+    You can replace this later with your real audit UI.
     """
-
-    # ---- PLACEHOLDER CONTENT (valid deploy-safe stub) ----
-    content = f"""
-CERTIFICATE OF COMPLETION
-
-Certificate ID: {certificate_id}
-
-Name: {full_name}
-Course: {course_title}
-
-Completed On: {completed_at.strftime("%Y-%m-%d")}
-Expires On: {expires_at.strftime("%Y-%m-%d") if expires_at else "N/A"}
-""".strip()
-
-    # This is NOT a real PDF.
-    # Replace ASAP with your actual generator.
-    return content.encode("utf-8")
+    # If you don't have a template yet, you can return a simple HttpResponse instead.
+    return HttpResponse("Audit Center")
 
 
-# ------------------------------------------------------------------
-# Certificate download endpoint
-# ------------------------------------------------------------------
+def _render_certificate_pdf(*, full_name: str, course_title: str, version: str, completed_at, expires_at, certificate_id: str) -> bytes:
+    """
+    Generates a real PDF (ReportLab) so downloads work immediately.
+    """
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=landscape(letter))
+    width, height = landscape(letter)
+
+    margin = 0.5 * inch
+    c.setLineWidth(3)
+    c.rect(margin, margin, width - 2 * margin, height - 2 * margin)
+
+    c.setFont("Helvetica-Bold", 34)
+    c.drawCentredString(width / 2, height - 1.35 * inch, "Certificate of Completion")
+
+    c.setFont("Helvetica", 16)
+    c.drawCentredString(width / 2, height - 1.7 * inch, "This certifies that")
+
+    c.setFont("Helvetica-Bold", 28)
+    c.drawCentredString(width / 2, height - 2.4 * inch, full_name)
+
+    c.setFont("Helvetica", 16)
+    c.drawCentredString(width / 2, height - 3.0 * inch, "has successfully completed")
+
+    c.setFont("Helvetica-Bold", 22)
+    c.drawCentredString(width / 2, height - 3.6 * inch, f"{course_title} (Version {version})")
+
+    completed_str = completed_at.date().strftime("%B %d, %Y") if completed_at else "—"
+    expires_str = expires_at.date().strftime("%B %d, %Y") if expires_at else "—"
+
+    c.setFont("Helvetica", 14)
+    c.drawCentredString(width / 2, height - 4.3 * inch, f"Completed: {completed_str}    |    Expires: {expires_str}")
+
+    c.setFont("Helvetica", 12)
+    c.drawString(margin + 0.2 * inch, margin + 0.35 * inch, f"Certificate ID: {certificate_id}")
+
+    c.showPage()
+    c.save()
+
+    pdf = buf.getvalue()
+    buf.close()
+    return pdf
+
+
 @login_required
 def certificate_download(request, certificate_id: str):
     """
-    Generate and download a certificate PDF.
-
-    Rules:
-    - Certificate must exist
-    - Course must be completed
-    - User must own the assignment OR be staff/auditor
+    Download a completion certificate by certificate_id.
+    User must own the assignment cycle OR be staff/superuser OR have courses.can_audit_certs
     """
-
     try:
         cycle = (
             AssignmentCycle.objects
@@ -71,44 +87,37 @@ def certificate_download(request, certificate_id: str):
     except AssignmentCycle.DoesNotExist:
         raise Http404("Certificate not found")
 
-    # Must be completed
-    if not cycle.completed_at:
-        raise Http404("Certificate not available")
-
-    # Permission check
-    user = request.user
-    is_owner = cycle.assignment.assignee_id == user.id
-    is_admin = user.is_staff or user.is_superuser
-    can_audit = user.has_perm("courses.can_audit_certs")
-
-    if not (is_owner or is_admin or can_audit):
+    # Permission: owner OR staff/superuser OR has audit perm
+    if not (
+        request.user.is_staff
+        or request.user.is_superuser
+        or request.user.has_perm("courses.can_audit_certs")
+        or cycle.assignment.assignee_id == request.user.id
+    ):
         raise Http404("Not found")
 
+    if not cycle.completed_at:
+        raise Http404("Course not completed")
+
     assignee = cycle.assignment.assignee
-    course = cycle.assignment.course_version.course
+    full_name = (assignee.get_full_name() or assignee.username or assignee.email or "User").strip()
 
-    full_name = (
-        assignee.get_full_name()
-        or assignee.username
-        or assignee.email
-        or "User"
-    ).strip()
+    cv = cycle.assignment.course_version
+    course_title = cv.course.title
+    version = cv.version
 
-    pdf_bytes = render_certificate_pdf(
+    completed_at = localtime(cycle.completed_at)
+    expires_at = localtime(cycle.expires_at) if cycle.expires_at else None
+
+    pdf_bytes = _render_certificate_pdf(
         full_name=full_name,
-        course_title=course.title,
-        completed_at=localtime(cycle.completed_at),
-        expires_at=localtime(cycle.expires_at) if cycle.expires_at else None,
+        course_title=course_title,
+        version=version,
+        completed_at=completed_at,
+        expires_at=expires_at,
         certificate_id=cycle.certificate_id,
     )
 
-    response = HttpResponse(pdf_bytes, content_type="application/pdf")
-    response["Content-Disposition"] = (
-        f'attachment; filename="certificate-{cycle.certificate_id}.pdf"'
-    )
-    return response
-
-
-@login_required
-def audit_center(request):
-    return HttpResponse("Audit Center – coming soon")
+    resp = HttpResponse(pdf_bytes, content_type="application/pdf")
+    resp["Content-Disposition"] = f'attachment; filename="certificate-{cycle.certificate_id}.pdf"'
+    return resp

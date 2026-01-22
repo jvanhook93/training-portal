@@ -424,13 +424,13 @@ def courses_list(request):
 def my_assignments(request):
     """
     Assignments for the current user.
-    Adds cert info so frontend can render a "Certificate" button on completed trainings.
+    Includes certificate_id when completed.
     """
     qs = (
         Assignment.objects
         .filter(assignee=request.user)
         .select_related("course_version", "course_version__course")
-        .prefetch_related("cycles")
+        .prefetch_related("cycles")  # uses ordering = ["-completed_at"]
         .order_by("-assigned_at")
     )
 
@@ -439,13 +439,17 @@ def my_assignments(request):
         cv = a.course_version
         c = cv.course
 
-        latest_cycle = _latest_completed_cycle_for_assignment(a)
+        latest_cycle = a.cycles.first()  # newest completion first because of Meta.ordering
+        cert_id = None
+        if latest_cycle and latest_cycle.completed_at:
+            cert_id = latest_cycle.certificate_id
 
         data.append({
             "id": a.id,
             "status": a.status,
             "assigned_at": a.assigned_at.isoformat(),
             "due_at": a.due_at.isoformat() if a.due_at else None,
+            "certificate_id": cert_id,
             "course": {
                 "id": c.id,
                 "code": c.code,
@@ -455,13 +459,9 @@ def my_assignments(request):
                 "id": cv.id,
                 "version": cv.version,
                 "pass_score": cv.pass_score,
-            },
-            # ✅ THIS is what your React dashboard uses to show the button
-            "latest_cycle": _cycle_payload(latest_cycle),
+            }
         })
-
     return JsonResponse({"results": data})
-
 
 @login_required
 def start_assignment(request, assignment_id):
