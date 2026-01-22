@@ -425,10 +425,34 @@ export default function App() {
             </a>
           )}
 
-          <form method="POST" action={backendUrl("/accounts/logout/")} style={{ margin: 0 }}>
-            <input type="hidden" name="csrfmiddlewaretoken" value={getCookie("csrftoken") || ""} />
-            <button
-              type="submit"
+          <button
+              onClick={async () => {
+                try {
+                  // Ensure CSRF cookie exists for this origin
+                  await apiFetch("/api/csrf/");
+                  const csrf = getCookie("csrftoken");
+
+                  const r = await apiFetch("/accounts/logout/", {
+                    method: "POST",
+                    headers: {
+                      "X-CSRFToken": csrf || "",
+                      "X-Requested-With": "XMLHttpRequest",
+                      "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    body: "",
+                  });
+
+                  if (!r.ok) {
+                    const txt = await r.text().catch(() => "");
+                    throw new Error(`Logout failed: ${r.status} ${txt}`);
+                  }
+
+                  // After logout, bounce to backend login (so session cookie is cleared for sure)
+                  window.location.href = backendUrl("/accounts/login/");
+                } catch (e) {
+                  alert(e?.message || "Logout failed");
+                }
+              }}
               style={{
                 background: "transparent",
                 border: "none",
@@ -440,7 +464,7 @@ export default function App() {
             >
               Logout
             </button>
-          </form>
+
         </div>
       </div>
 
