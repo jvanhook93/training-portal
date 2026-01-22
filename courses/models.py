@@ -15,6 +15,9 @@ class Course(models.Model):
 
     is_active = models.BooleanField(default=True)
 
+    required_for_company = models.BooleanField(default=False)
+    annual_renewal = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,

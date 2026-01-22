@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.utils.timezone import now
+from django.contrib.auth import get_user_model
+from courses.services import assign_required_company_courses, is_company_user
 
 from .models import (
     Course,
@@ -48,6 +50,15 @@ class QuizQuestionInline(admin.StackedInline):
     show_change_link = True
 
 
+User = get_user_model()
+
+@admin.action(description="Assign required company courses to all company users")
+def assign_required_to_all_company_users(modeladmin, request, queryset):
+    # queryset is Courses selected, but we can just assign based on flags
+    company_users = User.objects.exclude(email="").iterator()
+    for u in company_users:
+        if is_company_user(u.email):
+            assign_required_company_courses(u)
 # --------------------
 # Actions
 # --------------------
@@ -85,10 +96,11 @@ def unpublish_course_versions(modeladmin, request, queryset):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ("code", "title", "is_active", "created_at")
+    list_display = ("code", "title", "required_for_company", "annual_renewal", "is_active")
+    list_filter = ("required_for_company", "annual_renewal", "is_active")
     search_fields = ("code", "title")
-    list_filter = ("is_active",)
     inlines = (CourseVersionInline,)
+    actions = [assign_required_to_all_company_users]
 
 
 @admin.register(CourseVersion)
