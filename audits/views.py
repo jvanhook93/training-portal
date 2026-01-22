@@ -107,3 +107,8 @@ def certificate_download(request, certificate_id: str):
         f'attachment; filename="certificate-{cycle.certificate_id}.pdf"'
     )
     return response
+
+
+@login_required
+def audit_center(request):
+    return HttpResponse("Audit Center – coming soon")
