@@ -217,6 +217,15 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 
 CORS_ALLOW_CREDENTIALS = True
 
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "authorization",
+    "content-type",
+    "origin",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
 # Cookies / SameSite
 # If frontend and backend are on different domains in prod, you need SameSite=None; Secure=True
 if DEBUG:
