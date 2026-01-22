@@ -183,8 +183,8 @@ class VideoProgressAdmin(admin.ModelAdmin):
 
 @admin.register(AssignmentRule)
 class AssignmentRuleAdmin(admin.ModelAdmin):
-    list_display = ("name", "course_version", "frequency", "cycle_days", "remind_days_before", "is_active", "last_run_at")
-    list_filter = ("is_active", "frequency", "course_version__course__code")
-    search_fields = ("name", "course_version__course__code", "course_version__course__title", "course_version__version")
-    autocomplete_fields = ("course_version",)
-    readonly_fields = ("created_at",)
+    # keep this VERY simple to avoid any crashing methods/properties
+    list_display = ("id", "name", "is_active", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("name",)
+    ordering = ("-id",)

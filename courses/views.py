@@ -1,6 +1,6 @@
 import os
 from io import BytesIO
-
+import logging
 from dateutil.relativedelta import relativedelta
 
 from django.conf import settings
@@ -418,19 +418,20 @@ def courses_list(request):
 
     return JsonResponse({"results": data})
 
+logger = logging.getLogger(__name__)
 
 @require_GET
 @login_required
 def my_assignments(request):
     """
     Assignments for the current user.
-    Safe against broken foreign keys (deleted course versions/courses).
+    This endpoint should NEVER throw 500 — it will skip broken rows and report them.
     """
     qs = (
         Assignment.objects
         .filter(assignee=request.user)
         .select_related("course_version", "course_version__course")
-        .prefetch_related("cycles")  # ordering = ["-completed_at"]
+        .prefetch_related("cycles")
         .order_by("-assigned_at")
     )
 
@@ -438,52 +439,60 @@ def my_assignments(request):
     skipped = []
 
     for a in qs:
-        cv = getattr(a, "course_version", None)
+        try:
+            cv = getattr(a, "course_version", None)
+            if not cv:
+                skipped.append({
+                    "assignment_id": a.id,
+                    "course_version_id": getattr(a, "course_version_id", None),
+                    "reason": "course_version is missing/null",
+                })
+                continue
 
-        # ✅ Guard: if a.course_version was deleted or is null
-        if not cv or not getattr(cv, "course", None):
+            course = getattr(cv, "course", None)
+            if not course:
+                skipped.append({
+                    "assignment_id": a.id,
+                    "course_version_id": cv.id,
+                    "reason": "course is missing/null on course_version",
+                })
+                continue
+
+            latest_cycle = a.cycles.filter(completed_at__isnull=False).first()
+            cert_id = latest_cycle.certificate_id if (latest_cycle and latest_cycle.certificate_id) else None
+
+            results.append({
+                "id": a.id,
+                "status": a.status,
+                "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
+                "due_at": a.due_at.isoformat() if a.due_at else None,
+                "certificate_id": cert_id,
+                "course": {
+                    "id": course.id,
+                    "code": course.code,
+                    "title": course.title,
+                },
+                "course_version": {
+                    "id": cv.id,
+                    "version": cv.version,
+                    "pass_score": cv.pass_score,
+                }
+            })
+
+        except Exception as e:
+            # ✅ swallow the crash, log it, and move on
+            logger.exception("my_assignments: skipping assignment_id=%s due to error", a.id)
             skipped.append({
                 "assignment_id": a.id,
                 "course_version_id": getattr(a, "course_version_id", None),
-                "reason": "Missing course_version or course (likely deleted record).",
+                "reason": f"exception: {type(e).__name__}: {e}",
             })
-            continue
-
-        c = cv.course
-
-        # latest cycle (Meta.ordering makes first() newest, but may be null-completed)
-        latest_cycle = a.cycles.filter(completed_at__isnull=False).first()
-
-        cert_id = None
-        if latest_cycle and latest_cycle.certificate_id:
-            cert_id = latest_cycle.certificate_id
-
-        results.append({
-            "id": a.id,
-            "status": a.status,
-            "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
-            "due_at": a.due_at.isoformat() if a.due_at else None,
-            "certificate_id": cert_id,
-            "course": {
-                "id": c.id,
-                "code": c.code,
-                "title": c.title,
-            },
-            "course_version": {
-                "id": cv.id,
-                "version": cv.version,
-                "pass_score": cv.pass_score,
-            }
-        })
 
     payload = {"results": results}
-
-    # Helpful for you while debugging
     if skipped:
         payload["skipped"] = skipped
 
     return JsonResponse(payload)
-
 @login_required
 def start_assignment(request, assignment_id):
     if request.method != "POST":

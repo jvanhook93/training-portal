@@ -239,7 +239,9 @@ class Quiz(models.Model):
     is_required = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"Quiz for {self.course_version}"
+        # ✅ never crash admin changelist
+        label = getattr(self, "name", None) or f"AssignmentRule #{self.pk}"
+        return label
 
 
 class QuizQuestion(models.Model):
