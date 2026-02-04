@@ -1,9 +1,14 @@
-{% extends "admin/base_site.html" %}
+{% extends "admin/base.html" %}
 {% load static %}
 
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'branding/admin.css' %}">
+{% endblock %}
+
 {% block branding %}
-<h1 id="site-name" style="display:flex;align-items:center;gap:12px;">
-  <img src="{% static 'branding/integra_logo.png' %}" style="height:30px;width:auto;">
-  <span>IntegraNet Training Portal</span>
-</h1>
+  <h1 id="site-name" style="display:flex;align-items:center;gap:10px;">
+    <img src="{% static 'branding/integra_logo.png' %}" alt="IntegraNet" style="height:28px;width:auto;">
+    <span>IntegraNet Training Portal</span>
+  </h1>
 {% endblock %}

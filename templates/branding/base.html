@@ -1,0 +1,16 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}IntegraNet Training Portal{% endblock %}</title>
+
+  <link rel="icon" href="{% static 'branding/favicon.ico' %}">
+  <link rel="stylesheet" href="{% static 'branding/brand.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="inet">
+  {% block body %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,50 @@
+/* Make Django Admin match your light branding */
+
+:root{
+  --primary: #1e4f7a;
+  --border: #e2e8f0;
+}
+
+html[data-theme="light"], :root {
+  --primary: #1e4f7a;
+}
+
+body {
+  background: #f8fafc;
+}
+
+/* Top header */
+#header {
+  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+}
+
+#header a:link, #header a:visited {
+  color: var(--primary);
+}
+
+/* Module headers */
+.module h2, .module caption, .inline-group h2 {
+  background: #ffffff;
+  color: #0f172a;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Buttons */
+.button, input[type=submit], input[type=button], .submit-row input, a.button {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: #fff !important;
+  border-radius: 10px;
+}
+
+.button:hover, input[type=submit]:hover, a.button:hover {
+  filter: brightness(1.05);
+}
+
+/* Cards/panels */
+.module, .inline-group {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}

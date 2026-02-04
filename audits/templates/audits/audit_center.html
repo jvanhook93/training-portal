@@ -1,8 +1,18 @@
-{% extends "base_brand.html" %}
-{% block title %}Audit Center · IntegraNet Training Portal{% endblock %}
-{% block subtitle %}Audit Center{% endblock %}
+{% extends "branding/base.html" %}
+{% load static %}
 
-{% block content %}
+{% block title %}Audit Center — IntegraNet{% endblock %}
+
+{% block body %}
+<div class="brand-wrap">
+  <div class="brand-card" style="width:min(1100px,100%);">
+    <div class="brand-top">
+      <img class="brand-logo" src="{% static 'branding/integra_logo.png' %}" alt="IntegraNet Health">
+      <div>
+        <div class="brand-title">Audit Center</div>
+        <div class="brand-sub">Search and download completion certificates</div>
+      </div>
+    </div>
 
 
 <!doctype html>
@@ -141,4 +151,8 @@
 </html>
 
 
+    {% block audits_content %}
+    {% endblock %}
+  </div>
+</div>
 {% endblock %}
