@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 
 /**
- * API base rules (FIXES the 127.0.0.1 problem + logged-out redirect issue):
- * - If SPA is served from Railway backend origin => use same-origin relative URLs ("")
- * - If SPA is served from Cloudflare Pages/custom domain => MUST use VITE_API_BASE_URL
+ * ✅ Branding rewrite:
+ * - Removes the deep-blue/dark inline theme
+ * - Uses your existing brand.css tokens/classes (light theme)
+ * - Keeps the API base / unauth HTML detection logic
+ * - Keeps the logout fix (top-level navigation to backend)
  *
- * Also: when logged OUT, Django may 302 redirect /api/me/ -> /accounts/login/...
- * In that case fetch() returns HTML, not JSON. We treat that as "unauth".
+ * NOTE: This assumes brand.css is available to the SPA.
+ * If your SPA is served by Cloudflare Pages, make sure brand.css is in the SPA build:
+ *   - easiest: copy backend/static/brand/brand.css into frontend/public/brand/brand.css
+ * and then in main.jsx import it:
+ *   import "/brand/brand.css";
  *
- * IMPORTANT LOGOUT FIX:
- * - If frontend is on Cloudflare Pages, you CANNOT POST /accounts/logout/ with CSRF
- *   because cookies + csrftoken are on Railway domain.
- * - So logout MUST be a top-level navigation to the backend (GET).
+ * If your SPA is served same-origin from Railway (Django), you can also inject it via index.html,
+ * but the above public/ import is the cleanest.
  */
+
 const ENV_API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
 function isLocalHostHost(hostname) {
@@ -45,17 +49,6 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 
-const COLORS = {
-  bg: "#0b0f19",
-  surface: "rgba(15,23,42,.75)",
-  topbar: "rgba(2,6,23,.75)",
-  border: "#334155",
-  text: "#eef2ff",
-  muted: "#94a3b8",
-  link: "#93c5fd",
-  warn: "#fbbf24",
-};
-
 function joinUrl(base, path) {
   if (!base) return path;
   const p = path.startsWith("/") ? path : `/${path}`;
@@ -74,46 +67,6 @@ async function apiFetch(path, init = {}) {
   return fetch(apiUrl(path), { credentials: "include", ...init });
 }
 
-function Card({ title, children, onClick, clickable }) {
-  return (
-    <div
-      onClick={onClick}
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      style={{
-        border: `1px solid ${COLORS.border}`,
-        background: COLORS.surface,
-        borderRadius: 16,
-        padding: 16,
-        cursor: clickable ? "pointer" : "default",
-        userSelect: "none",
-      }}
-    >
-      <div style={{ fontSize: 14, color: "#cbd5e1", marginBottom: 10 }}>{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function Pill({ children }) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "2px 8px",
-        borderRadius: 999,
-        border: `1px solid ${COLORS.border}`,
-        background: "rgba(255,255,255,.04)",
-        color: "#cbd5e1",
-        fontSize: 12,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
 function fmtDate(s) {
   if (!s) return "—";
   const d = new Date(s);
@@ -127,6 +80,51 @@ function statusLabel(s) {
   if (s === "COMPLETED") return "Completed";
   if (s === "OVERDUE") return "Overdue";
   return s || "—";
+}
+
+function StatCard({ label, value, hint, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      className="brand-card"
+      style={{
+        padding: 16,
+        cursor: onClick ? "pointer" : "default",
+        userSelect: "none",
+      }}
+    >
+      <div className="brand-sub" style={{ fontWeight: 700, marginBottom: 10 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 32, fontWeight: 900, lineHeight: 1 }}>{value}</div>
+      <div className="brand-sub" style={{ marginTop: 6 }}>
+        {hint}
+      </div>
+    </div>
+  );
+}
+
+function Badge({ children }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "2px 10px",
+        borderRadius: 999,
+        border: "1px solid var(--border)",
+        background: "var(--surface-alt)",
+        color: "var(--muted)",
+        fontSize: 12,
+        fontWeight: 700,
+      }}
+    >
+      {children}
+    </span>
+  );
 }
 
 export default function App() {
@@ -156,7 +154,6 @@ export default function App() {
       }
 
       try {
-        // Force JSON preference; detect HTML (login page) as unauth
         const r = await apiFetch("/api/me/", { headers: { Accept: "application/json" } });
 
         if (r.status === 401) {
@@ -164,7 +161,6 @@ export default function App() {
           return;
         }
 
-        // If Django redirects to login, fetch follows and we get HTML
         const ct = (r.headers.get("content-type") || "").toLowerCase();
         if (!ct.includes("application/json")) {
           setStatus("unauth");
@@ -211,7 +207,6 @@ export default function App() {
         return;
       }
 
-      // If we got bounced to login (HTML), treat as unauth
       const ct = (r.headers.get("content-type") || "").toLowerCase();
       if (!ct.includes("application/json")) {
         setStatus("unauth");
@@ -252,24 +247,16 @@ export default function App() {
     return assignments;
   }, [assignments, assignView]);
 
-  // ---- actions ----
   async function startAssignment(a) {
     try {
       setBusyId(a.id);
 
-      // Ensure CSRF cookie exists (this works when SPA is served same-origin from Railway;
-      // and also works if your CSRF endpoint sets cookie properly on backend origin).
-      await apiFetch("/api/csrf/");
-      const csrf = null; // we intentionally do NOT rely on document.cookie cross-domain
-
+      // NOTE: When served from Pages, CSRF for POST can be tricky cross-site.
+      // If this ever 403s from Pages, the recommended fix is to make this endpoint CSRF-exempt
+      // and require session auth + SameSite=None cookies (which you already have).
       const r = await apiFetch(`/api/assignments/${a.id}/start/`, {
         method: "POST",
-        headers: {
-          // Note: when app is served from Pages, CSRF for cross-site POST is tricky.
-          // If this endpoint ever 403s from Pages, we can switch it to token auth or same-site flow.
-          "X-CSRFToken": csrf || "",
-          "X-Requested-With": "XMLHttpRequest",
-        },
+        headers: { "X-Requested-With": "XMLHttpRequest" },
       });
 
       if (!r.ok) {
@@ -293,51 +280,65 @@ export default function App() {
     if (cvId) window.location.href = backendUrl(`/training/${cvId}/`);
   }
 
+  // Logout URL (GET + redirect back to current page)
+  const logoutUrl = backendUrl(`/accounts/logout/?next=${encodeURIComponent(window.location.href)}`);
+
   // ---- UI states ----
   if (status === "loading") {
-    return <div style={{ padding: 24, fontFamily: "system-ui" }}>Loading…</div>;
+    return (
+      <div className="brand-wrap">
+        <div className="brand-card" style={{ width: "min(520px, 100%)" }}>
+          <div className="brand-title">IntegraNet Training Portal</div>
+          <div className="brand-sub" style={{ marginTop: 6 }}>
+            Loading…
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (status === "nobackend") {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
-        <h1>Training Portal</h1>
-        <p style={{ color: COLORS.warn }}>
-          Backend is not connected. This site is running as a static preview on Cloudflare Pages.
-        </p>
-        <p style={{ color: COLORS.muted, maxWidth: 700 }}>
-          Set <code>VITE_API_BASE_URL</code> in Cloudflare Pages to your Django backend URL (example:{" "}
-          <code>https://web-production-4c59f.up.railway.app</code>).
-        </p>
+      <div className="brand-wrap">
+        <div className="brand-card" style={{ width: "min(720px, 100%)" }}>
+          <div className="brand-title">IntegraNet Training Portal</div>
+          <div className="brand-sub" style={{ marginTop: 6 }}>
+            Backend is not connected. This site is running as a static preview on Cloudflare Pages.
+          </div>
+
+          <div className="brand-hint" style={{ marginTop: 12 }}>
+            Set <code>VITE_API_BASE_URL</code> in Cloudflare Pages to your Django backend URL (example:{" "}
+            <code>https://web-production-4c59f.up.railway.app</code>).
+          </div>
+
+          <div className="brand-hint" style={{ marginTop: 10 }}>
+            API Base: <code>{API_BASE || "(same-origin)"}</code>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (status === "unauth") {
-    // Login must occur on backend origin to establish session cookies
     const loginUrl = backendUrl("/accounts/login/?next=/app/");
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
-        <h1 style={{ margin: "0 0 10px" }}>Training Portal</h1>
-        <p style={{ margin: "0 0 16px", color: "#cbd5e1" }}>You’re not logged in.</p>
+      <div className="brand-wrap">
+        <div className="brand-card" style={{ width: "min(520px, 100%)" }}>
+          <div className="brand-title">IntegraNet Training Portal</div>
+          <div className="brand-sub" style={{ marginTop: 6 }}>
+            You’re not logged in.
+          </div>
 
-        <a
-          href={loginUrl}
-          style={{
-            color: "#0b0f19",
-            background: COLORS.link,
-            textDecoration: "none",
-            padding: "10px 14px",
-            borderRadius: 12,
-            fontWeight: 700,
-            display: "inline-block",
-          }}
-        >
-          Login
-        </a>
+          <div className="brand-actions" style={{ marginTop: 16 }}>
+            <a className="brand-btn primary" href={loginUrl} style={{ display: "inline-flex", alignItems: "center" }}>
+              Login
+            </a>
+            <div className="brand-hint">You’ll be redirected back after login.</div>
+          </div>
 
-        <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
-          API Base: <code>{API_BASE || "(same-origin)"}</code>
+          <div className="brand-hint" style={{ marginTop: 10 }}>
+            API Base: <code>{API_BASE || "(same-origin)"}</code>
+          </div>
         </div>
       </div>
     );
@@ -345,183 +346,139 @@ export default function App() {
 
   if (status === "error") {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui", color: COLORS.text, background: COLORS.bg, minHeight: "100vh" }}>
-        <h1>Training Portal</h1>
-        <p>Couldn’t load your account.</p>
-        <p style={{ color: COLORS.muted }}>
-          If this is running on Cloudflare Pages, make sure <code>VITE_API_BASE_URL</code> is set and the backend is reachable.
-        </p>
-        <div style={{ marginTop: 14, color: COLORS.muted, fontSize: 12 }}>
-          API Base: <code>{API_BASE || "(same-origin)"}</code>
+      <div className="brand-wrap">
+        <div className="brand-card" style={{ width: "min(720px, 100%)" }}>
+          <div className="brand-title">IntegraNet Training Portal</div>
+          <div className="brand-sub" style={{ marginTop: 6 }}>
+            Couldn’t load your account.
+          </div>
+
+          <div className="brand-hint" style={{ marginTop: 12 }}>
+            If this is running on Cloudflare Pages, make sure <code>VITE_API_BASE_URL</code> is set and the backend is reachable.
+          </div>
+
+          <div className="brand-hint" style={{ marginTop: 10 }}>
+            API Base: <code>{API_BASE || "(same-origin)"}</code>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Logout URL (GET + redirect back to current page)
-  const logoutUrl = backendUrl(`/accounts/logout/?next=${encodeURIComponent(window.location.href)}`);
-
   // ---- main app ----
   return (
-    <div style={{ minHeight: "100vh", background: COLORS.bg, color: COLORS.text, fontFamily: "system-ui" }}>
-      {/* Top bar */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "14px 18px",
-          borderBottom: `1px solid ${COLORS.border}`,
-          background: COLORS.topbar,
-          position: "sticky",
-          top: 0,
-        }}
-      >
-        <div style={{ fontWeight: 700 }}>Training Portal</div>
+    <div className="brand-wrap" style={{ alignItems: "flex-start" }}>
+      <div style={{ width: "min(1100px, 100%)" }}>
+        {/* Header */}
+        <div className="brand-card" style={{ padding: 16, marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div className="brand-title">IntegraNet Training Portal</div>
+              <div className="brand-sub">
+                {(me?.first_name || me?.username || "User") + " " + (me?.last_name || "")}
+              </div>
+            </div>
 
-        <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-          <button
-            onClick={() => setPage("dashboard")}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: page === "dashboard" ? COLORS.link : "#e2e8f0",
-              cursor: "pointer",
-            }}
-          >
-            Dashboard
-          </button>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                className="brand-btn"
+                onClick={() => setPage("dashboard")}
+                style={{
+                  borderColor: page === "dashboard" ? "var(--primary)" : "var(--border)",
+                }}
+              >
+                Dashboard
+              </button>
 
-          <button
-            onClick={() => {
-              setPage("courses");
-              if (coursesStatus === "idle") loadCourses();
-            }}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: page === "courses" ? COLORS.link : "#e2e8f0",
-              cursor: "pointer",
-            }}
-          >
-            Courses
-          </button>
+              <button
+                className="brand-btn"
+                onClick={() => {
+                  setPage("courses");
+                  if (coursesStatus === "idle") loadCourses();
+                }}
+                style={{
+                  borderColor: page === "courses" ? "var(--primary)" : "var(--border)",
+                }}
+              >
+                Courses
+              </button>
 
-          <div style={{ width: 1, height: 18, background: COLORS.border }} />
+              {(me?.is_staff || me?.is_superuser) && (
+                <a className="brand-btn" href={backendUrl("/admin/")}>
+                  Admin
+                </a>
+              )}
 
-          <div style={{ fontSize: 13, color: "#cbd5e1" }}>
-            {(me?.first_name || me?.username || "User") + " " + (me?.last_name || "")}
+              <a className="brand-btn" href={logoutUrl}>
+                Logout
+              </a>
+            </div>
           </div>
-
-          {(me?.is_staff || me?.is_superuser) && (
-            <a
-              href={backendUrl("/admin/")}
-              style={{
-                color: COLORS.link,
-                textDecoration: "none",
-                fontSize: 13,
-                border: `1px solid ${COLORS.border}`,
-                padding: "6px 10px",
-                borderRadius: 10,
-                background: "rgba(255,255,255,.04)",
-              }}
-            >
-              Admin
-            </a>
-          )}
-
-          {/* ✅ FIXED LOGOUT: top-level navigation (no fetch, no CSRF issues across domains) */}
-          <a
-            href={logoutUrl}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: COLORS.link,
-              cursor: "pointer",
-              fontSize: 13,
-              padding: 0,
-              textDecoration: "none",
-            }}
-          >
-            Logout
-          </a>
         </div>
-      </div>
 
-      {/* Content */}
-      <div style={{ padding: 18, maxWidth: 1100, margin: "0 auto" }}>
+        {/* Dashboard */}
         {page === "dashboard" && (
           <>
-            <h2 style={{ margin: "10px 0 16px" }}>Dashboard</h2>
-
-            {assignStatus === "error" && (
-              <div style={{ color: COLORS.warn, marginBottom: 12 }}>
-                Couldn’t load assignments. {assignError ? `(${assignError})` : ""}
-              </div>
-            )}
-
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
-              <Card title="Assigned" clickable onClick={() => setAssignView("assigned")}>
-                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.assigned}</div>
-                <div style={{ color: COLORS.muted, fontSize: 13 }}>Not started yet</div>
-              </Card>
-
-              <Card title="In Progress" clickable onClick={() => setAssignView("inprogress")}>
-                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.inProgress}</div>
-                <div style={{ color: COLORS.muted, fontSize: 13 }}>Started</div>
-              </Card>
-
-              <Card title="Completed" clickable onClick={() => setAssignView("completed")}>
-                <div style={{ fontSize: 28, fontWeight: 700 }}>{assignStatus === "loading" ? "…" : counts.completed}</div>
-                <div style={{ color: COLORS.muted, fontSize: 13 }}>Finished</div>
-              </Card>
+              <StatCard
+                label="Assigned"
+                value={assignStatus === "loading" ? "…" : counts.assigned}
+                hint="Not started yet"
+                onClick={() => setAssignView("assigned")}
+              />
+              <StatCard
+                label="In Progress"
+                value={assignStatus === "loading" ? "…" : counts.inProgress}
+                hint="Started"
+                onClick={() => setAssignView("inprogress")}
+              />
+              <StatCard
+                label="Completed"
+                value={assignStatus === "loading" ? "…" : counts.completed}
+                hint="Finished"
+                onClick={() => setAssignView("completed")}
+              />
             </div>
 
             <div style={{ height: 14 }} />
 
-            <Card title="My Assignments">
-              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-                <Pill>View: {assignView === "all" ? "All" : statusLabel(assignView.toUpperCase())}</Pill>
+            <div className="brand-card" style={{ width: "100%", padding: 18 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                <div>
+                  <div className="brand-title" style={{ fontSize: 18 }}>My Assignments</div>
+                  <div className="brand-sub" style={{ marginTop: 2 }}>
+                    View:{" "}
+                    <b>{assignView === "all" ? "All" : assignView === "inprogress" ? "In Progress" : assignView.charAt(0).toUpperCase() + assignView.slice(1)}</b>
+                  </div>
+                </div>
 
-                <button
-                  onClick={() => setAssignView("all")}
-                  style={{
-                    background: "transparent",
-                    border: `1px solid ${COLORS.border}`,
-                    color: "#e2e8f0",
-                    borderRadius: 10,
-                    padding: "6px 10px",
-                    cursor: "pointer",
-                    fontSize: 12,
-                  }}
-                >
-                  Show all
-                </button>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <Badge>{assignView === "all" ? "All" : statusLabel(assignView.toUpperCase())}</Badge>
 
-                <button
-                  onClick={loadAssignments}
-                  style={{
-                    background: "transparent",
-                    border: `1px solid ${COLORS.border}`,
-                    color: "#e2e8f0",
-                    borderRadius: 10,
-                    padding: "6px 10px",
-                    cursor: "pointer",
-                    fontSize: 12,
-                  }}
-                >
-                  Refresh
-                </button>
+                  <button className="brand-btn" onClick={() => setAssignView("all")}>
+                    Show all
+                  </button>
+
+                  <button className="brand-btn primary" onClick={loadAssignments}>
+                    Refresh
+                  </button>
+                </div>
               </div>
 
-              {assignStatus === "loading" && <div style={{ color: COLORS.muted }}>Loading…</div>}
+              {assignStatus === "error" && (
+                <div className="brand-error" style={{ marginTop: 10 }}>
+                  Couldn’t load assignments. {assignError ? `(${assignError})` : ""}
+                </div>
+              )}
+
+              {assignStatus === "loading" && <div className="brand-hint" style={{ marginTop: 12 }}>Loading…</div>}
 
               {assignStatus !== "loading" && filteredAssignments.length === 0 && (
-                <div style={{ color: COLORS.muted }}>No assignments in this view.</div>
+                <div className="brand-hint" style={{ marginTop: 12 }}>No assignments in this view.</div>
               )}
 
               {filteredAssignments.length > 0 && (
-                <div style={{ display: "grid", gap: 10 }}>
+                <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
                   {filteredAssignments.map((a) => {
                     const title = a.course?.title || a.course_title || "Course";
                     const code = a.course?.code || a.course_code || "";
@@ -530,17 +487,16 @@ export default function App() {
 
                     const canStart = a.status === "ASSIGNED";
                     const canResume = a.status === "IN_PROGRESS" || a.status === "COMPLETED" || a.status === "OVERDUE";
-
                     const certId = a.certificate_id || null;
 
                     return (
                       <div
                         key={a.id}
                         style={{
-                          border: `1px solid ${COLORS.border}`,
-                          borderRadius: 14,
+                          border: "1px solid var(--border)",
+                          borderRadius: 12,
                           padding: 12,
-                          background: "rgba(255,255,255,.03)",
+                          background: "var(--surface-alt)",
                           display: "flex",
                           justifyContent: "space-between",
                           gap: 12,
@@ -549,30 +505,27 @@ export default function App() {
                         }}
                       >
                         <div style={{ minWidth: 240 }}>
-                          <div style={{ fontWeight: 650 }}>
+                          <div style={{ fontWeight: 900, color: "var(--text)" }}>
                             {title}{" "}
-                            {code ? <span style={{ color: COLORS.muted, fontWeight: 500 }}>({code})</span> : null}
+                            {code ? <span style={{ color: "var(--muted)", fontWeight: 700 }}>({code})</span> : null}
                           </div>
-                          <div style={{ marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <Pill>{statusLabel(a.status)}</Pill>
-                            {version ? <Pill>v{version}</Pill> : null}
-                            <Pill>Due: {fmtDate(due)}</Pill>
+
+                          <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <Badge>{statusLabel(a.status)}</Badge>
+                            {version ? <Badge>v{version}</Badge> : null}
+                            <Badge>Due: {fmtDate(due)}</Badge>
                           </div>
                         </div>
 
-                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                           {canStart && (
                             <button
+                              className="brand-btn primary"
                               disabled={busyId === a.id}
                               onClick={() => startAssignment(a)}
                               style={{
-                                border: `1px solid ${COLORS.border}`,
-                                background: "#111827",
-                                color: "#e2e8f0",
-                                borderRadius: 12,
-                                padding: "8px 12px",
+                                opacity: busyId === a.id ? 0.7 : 1,
                                 cursor: busyId === a.id ? "not-allowed" : "pointer",
-                                fontSize: 13,
                               }}
                             >
                               {busyId === a.id ? "Starting…" : "Start"}
@@ -580,37 +533,13 @@ export default function App() {
                           )}
 
                           {canResume && (
-                            <button
-                              onClick={() => resumeAssignment(a)}
-                              style={{
-                                border: `1px solid ${COLORS.border}`,
-                                background: "transparent",
-                                color: COLORS.link,
-                                borderRadius: 12,
-                                padding: "8px 12px",
-                                cursor: "pointer",
-                                fontSize: 13,
-                              }}
-                            >
+                            <button className="brand-btn" onClick={() => resumeAssignment(a)}>
                               {a.status === "COMPLETED" ? "View" : "Resume"}
                             </button>
                           )}
 
                           {a.status === "COMPLETED" && certId && (
-                            <a
-                              href={backendUrl(`/audits/certificates/${certId}/download/`)}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{
-                                border: `1px solid ${COLORS.border}`,
-                                background: "transparent",
-                                color: COLORS.link,
-                                borderRadius: 12,
-                                padding: "8px 12px",
-                                textDecoration: "none",
-                                fontSize: 13,
-                              }}
-                            >
+                            <a className="brand-btn" href={backendUrl(`/audits/certificates/${certId}/download/`)} target="_blank" rel="noreferrer">
                               Certificate
                             </a>
                           )}
@@ -620,41 +549,54 @@ export default function App() {
                   })}
                 </div>
               )}
-            </Card>
+            </div>
           </>
         )}
 
+        {/* Courses */}
         {page === "courses" && (
-          <>
-            <h2 style={{ margin: "10px 0 16px" }}>Courses</h2>
+          <div className="brand-card" style={{ width: "100%", padding: 18 }}>
+            <div className="brand-title" style={{ fontSize: 18 }}>Courses</div>
 
-            {coursesStatus === "loading" && <p>Loading courses…</p>}
-            {coursesStatus === "error" && <p>Couldn’t load courses.</p>}
-            {coursesStatus === "ready" && courses.length === 0 && <p>No courses available.</p>}
+            {coursesStatus === "loading" && <p className="brand-hint">Loading courses…</p>}
+            {coursesStatus === "error" && <p className="brand-error">Couldn’t load courses.</p>}
+            {coursesStatus === "ready" && courses.length === 0 && <p className="brand-hint">No courses available.</p>}
 
             {coursesStatus === "ready" && courses.length > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginTop: 12 }}>
                 {courses.map((c) => (
-                  <Card key={c.id} title={`${c.title} (${c.code})`}>
+                  <div key={c.id} className="brand-card" style={{ padding: 16 }}>
+                    <div style={{ fontWeight: 900 }}>
+                      {c.title}{" "}
+                      <span style={{ color: "var(--muted)", fontWeight: 700 }}>({c.code})</span>
+                    </div>
+
                     {c.description ? (
-                      <div style={{ fontSize: 13, color: "#cbd5e1", marginBottom: 10 }}>{c.description}</div>
+                      <div className="brand-sub" style={{ marginTop: 8 }}>{c.description}</div>
                     ) : (
-                      <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 10 }}>No description</div>
+                      <div className="brand-sub" style={{ marginTop: 8 }}>No description</div>
                     )}
 
-                    {c.published_version ? (
-                      <div style={{ fontSize: 13 }}>
-                        Version <b>{c.published_version.version}</b> · Pass score {c.published_version.pass_score}%
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 13, color: COLORS.warn }}>No published version yet</div>
-                    )}
-                  </Card>
+                    <div style={{ marginTop: 10 }}>
+                      {c.published_version ? (
+                        <div className="brand-sub">
+                          Version <b style={{ color: "var(--text)" }}>{c.published_version.version}</b> · Pass score{" "}
+                          <b style={{ color: "var(--text)" }}>{c.published_version.pass_score}%</b>
+                        </div>
+                      ) : (
+                        <div className="brand-sub" style={{ color: "var(--warn)" }}>No published version yet</div>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
-          </>
+          </div>
         )}
+
+        <div className="brand-hint" style={{ marginTop: 14, textAlign: "center" }}>
+          © {new Date().getFullYear()} IntegraNet Health
+        </div>
       </div>
     </div>
   );
