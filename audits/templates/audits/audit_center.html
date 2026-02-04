@@ -19,6 +19,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <link rel="stylesheet" href="{% static 'branding/brand.css' %}">
   <title>Audit Center</title>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin: 20px; background:#0b0f19; color:#eef2ff; }
@@ -36,6 +37,8 @@
     .row { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
   </style>
 </head>
+<div class="brand-wrap">
+  <div class="brand-card">
 <body>
   <h2>Audit Center</h2>
   <div class="muted">
@@ -154,5 +157,7 @@
     {% block audits_content %}
     {% endblock %}
   </div>
+</div>
+</div>
 </div>
 {% endblock %}
