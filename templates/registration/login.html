@@ -6,121 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>IntegraNet Training Portal</title>
 
-  {# Optional external brand stylesheet (safe if it fails) #}
   <link rel="stylesheet" href="{% static 'brand/brand.css' %}">
-
-  <style>
-    :root{
-      --bg:#0b0f19;
-      --panel: rgba(15,23,42,.78);
-      --border:#334155;
-      --text:#eef2ff;
-      --muted:#94a3b8;
-      --link:#93c5fd;
-      --btn:#111827;
-      --btnText:#e2e8f0;
-      --warn:#fbbf24;
-    }
-    *{ box-sizing:border-box; }
-    body{
-      margin:0;
-      min-height:100vh;
-      display:grid;
-      place-items:center;
-      background: radial-gradient(1200px 700px at 20% 10%, rgba(59,130,246,.18), transparent 50%),
-                  radial-gradient(900px 600px at 80% 30%, rgba(147,197,253,.12), transparent 55%),
-                  var(--bg);
-      color:var(--text);
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    }
-    .card{
-      width:min(520px, calc(100vw - 28px));
-      border:1px solid var(--border);
-      background: var(--panel);
-      border-radius:18px;
-      padding:22px;
-      box-shadow: 0 24px 60px rgba(0,0,0,.35);
-    }
-    .brand{
-      display:flex;
-      gap:14px;
-      align-items:center;
-      margin-bottom:16px;
-    }
-    .logo{
-      height:44px;
-      width:auto;
-      display:block;
-      filter: brightness(1.18) contrast(1.05);
-    }
-    h1{
-      font-size:18px;
-      margin:0;
-      letter-spacing:.2px;
-      font-weight:800;
-      color: var(--text);
-    }
-    .sub{
-      margin-top:4px;
-      color:var(--muted);
-      font-size:13px;
-    }
-    label{
-      display:block;
-      margin:12px 0 6px;
-      color:#cbd5e1;
-      font-size:13px;
-    }
-    input{
-      width:100%;
-      padding:10px 12px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background: rgba(2,6,23,.55);
-      color:var(--text);
-      outline:none;
-    }
-    input:focus{
-      border-color: rgba(147,197,253,.7);
-      box-shadow: 0 0 0 3px rgba(147,197,253,.15);
-    }
-    .row{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      justify-content:space-between;
-      margin-top:16px;
-      flex-wrap:wrap;
-    }
-    .btn{
-      appearance:none;
-      border:1px solid var(--border);
-      background: var(--btn);
-      color: var(--btnText);
-      padding:10px 14px;
-      border-radius:12px;
-      cursor:pointer;
-      font-weight:700;
-    }
-    .btn:hover{ filter: brightness(1.08); }
-    a{ color:var(--link); text-decoration:none; }
-    a:hover{ text-decoration:underline; }
-    .error{
-      margin:10px 0 0;
-      color: var(--warn);
-      font-size:13px;
-    }
-    .footer{
-      margin-top:14px;
-      display:flex;
-      gap:10px;
-      justify-content:space-between;
-      align-items:center;
-      flex-wrap:wrap;
-      color:var(--muted);
-      font-size:12px;
-    }
-  </style>
 </head>
 
 <body>
@@ -136,11 +22,11 @@
     <form method="post" action="">
       {% csrf_token %}
 
-      <label for="{{ form.username.id_for_label }}">Username</label>
-      {{ form.username }}
+      <label for="id_username">Username</label>
+      <input id="id_username" name="username" autocomplete="username" required />
 
-      <label for="{{ form.password.id_for_label }}">Password</label>
-      {{ form.password }}
+      <label for="id_password">Password</label>
+      <input id="id_password" name="password" type="password" autocomplete="current-password" required />
 
       {% if form.errors %}
         <div class="error">Invalid username or password.</div>
@@ -148,7 +34,7 @@
 
       <div class="row">
         <button class="btn" type="submit">Sign in</button>
-        <div style="font-size:13px;">
+        <div class="linkwrap">
           <a href="{% url 'register' %}">Create account</a>
         </div>
       </div>
@@ -156,14 +42,8 @@
 
     <div class="footer">
       <div>Need access? Contact IT.</div>
-      <div style="opacity:.9;">© {% now "Y" %} IntegraNet Health</div>
+      <div>© {% now "Y" %} IntegraNet Health</div>
     </div>
   </div>
-
-  <script>
-    // Nice UX: put cursor in username box
-    const u = document.querySelector('input[name="username"]');
-    if (u) u.focus();
-  </script>
 </body>
 </html>
