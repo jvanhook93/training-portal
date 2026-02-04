@@ -5,44 +5,53 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>IntegraNet Training Portal</title>
-<!-- TEMPLATE: registration/login.html -->
+
+  <!-- CSS MUST be in the HEAD -->
   <link rel="stylesheet" href="{% static 'brand/brand.css' %}">
 </head>
 
 <body>
-  <div class="card">
-    <div class="brand">
-      <img class="logo" src="{% static 'branding/integra_logo.png' %}" alt="IntegraNet Health">
-      <div>
-        <h1>IntegraNet Training Portal</h1>
-        <div class="sub">Sign in to continue</div>
-      </div>
-    </div>
+  <div class="brand-wrap">
+    <div class="brand-card">
 
-    <form method="post" action="">
-      {% csrf_token %}
-
-      <label for="id_username">Username</label>
-      <input id="id_username" name="username" autocomplete="username" required />
-
-      <label for="id_password">Password</label>
-      <input id="id_password" name="password" type="password" autocomplete="current-password" required />
-
-      {% if form.errors %}
-        <div class="error">Invalid username or password.</div>
-      {% endif %}
-
-      <div class="row">
-        <button class="btn" type="submit">Sign in</button>
-        <div class="linkwrap">
-          <a href="{% url 'register' %}">Create account</a>
+      <div class="brand-top">
+        <img
+          class="brand-logo"
+          src="{% static 'branding/integra_logo.png' %}"
+          alt="IntegraNet Health"
+          style="max-width: 220px; height: auto;"
+        />
+        <div>
+          <div class="brand-title">IntegraNet Training Portal</div>
+          <div class="brand-sub">Sign in to continue</div>
         </div>
       </div>
-    </form>
 
-    <div class="footer">
-      <div>Need access? Contact IT.</div>
-      <div>© {% now "Y" %} IntegraNet Health</div>
+      <form method="post" action="">
+        {% csrf_token %}
+
+        <div class="brand-field">
+          <label for="id_username">Username</label>
+          <input id="id_username" name="username" type="text" autocomplete="username" required />
+        </div>
+
+        <div class="brand-field">
+          <label for="id_password">Password</label>
+          <input id="id_password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+
+        {% if form.errors %}
+          <div class="brand-error">Invalid username or password.</div>
+        {% endif %}
+
+        <div class="brand-actions">
+          <button class="brand-btn primary" type="submit">Sign in</button>
+          <a href="{% url 'register' %}">Create account</a>
+        </div>
+
+        <div class="brand-hint">Need access? Contact IT.</div>
+      </form>
+
     </div>
   </div>
 </body>

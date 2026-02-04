@@ -1,50 +1,56 @@
 {% load static %}
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>IntegraNet Training Portal</title>
-  <link rel="stylesheet" href="{% static 'branding/brand.css' %}">
+
+  <!-- Correct path + use static tag -->
+  <link rel="stylesheet" href="{% static 'brand/brand.css' %}">
 </head>
+
 <body>
   <div class="brand-wrap">
     <div class="brand-card">
-<!-- TEMPLATE: accounts/login.html -->
+      <!-- TEMPLATE: accounts/login.html -->
+
       <div class="brand-top">
-        <img class="brand-logo" src="{% static 'branding/integra_logo.png' %}" alt="IntegraNet Health">
+        <img
+          class="brand-logo"
+          src="{% static 'branding/integra_logo.png' %}"
+          alt="IntegraNet Health"
+        />
         <div>
           <div class="brand-title">IntegraNet Training Portal</div>
           <div class="brand-sub">Sign in to continue</div>
         </div>
       </div>
 
-      {% if form.errors %}
-        <div class="brand-error">Invalid username or password.</div>
-      {% endif %}
-
-      <form method="post">
+      <form method="post" action="">
         {% csrf_token %}
 
         <div class="brand-field">
           <label for="id_username">Username</label>
-          {{ form.username }}
+          <input id="id_username" name="username" type="text" autocomplete="username" required />
         </div>
 
         <div class="brand-field">
           <label for="id_password">Password</label>
-          {{ form.password }}
+          <input id="id_password" name="password" type="password" autocomplete="current-password" required />
         </div>
+
+        {% if form.errors %}
+          <div class="brand-error">Invalid username or password.</div>
+        {% endif %}
 
         <div class="brand-actions">
-          <button class="brand-btn primary" type="submit">Sign In</button>
+          <button class="brand-btn primary" type="submit">Sign in</button>
           <a href="{% url 'register' %}">Create account</a>
         </div>
+
+        <div class="brand-hint">Need access? Contact IT.</div>
       </form>
-
-      <div class="brand-hint">
-        Need access? Contact IT.
-      </div>
-
     </div>
   </div>
 </body>
